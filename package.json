@@ -1,0 +1,27 @@
+{
+  "name": "kattegat-kaper",
+  "version": "1.0.0",
+  "description": "A terminal pirate game set in the Kattegat strait",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "keywords": [
+    "terminal",
+    "game",
+    "pirate",
+    "roguelike",
+    "ascii",
+    "neo-blessed"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "neo-blessed": "^0.2.0",
+    "rot-js": "^2.2.0",
+    "simplex-noise": "^4.0.0",
+    "alea": "^1.0.1"
+  }
+}

@@ -24,8 +24,12 @@ A terminal pirate game set in the Kattegat strait — spiritual successor to **K
 - **Port exploration** — walk through procedural towns, visit taverns, markets, shipwrights, churches
 - **Trading economy** — 8 trade goods with per-port supply/demand pricing, ship upgrades
 - **Crew management** — recruit sailors, manage morale, assign roles, pay wages
+- **Ship fleet** — own up to 4 ships (sloop, brigantine, frigate, galleon), capture vessels after boarding, buy/sell at shipwrights, switch flagships with per-ship upgrades
 - **Faction reputation** — 5 factions with cross-faction ripple effects, gated port access, price modifiers
+- **Missions & contracts** — cargo delivery and bounty hunting with deadlines, rewards, and reputation payouts
 - **Island exploration** — puzzles (Sokoban boulders, keys, torches), treasure maps, wildlife, rival pirates
+- **Day/night cycle** — dawn/day/dusk/night with moon phases, port curfews, night tavern bonuses, seasonal weather bias
+- **World events** — trade booms, plague outbreaks, naval blockades, and pirate raids that shift the game world
 - **Dynamic weather** — fog, rain, storms affecting visibility, speed, hull damage, and combat sway
 - **Save/load system** — auto-save at ports, manual save slots
 - **CRT aesthetic** — optional scanline + vignette filter
@@ -57,9 +61,18 @@ npm start
 | Title      | Enter            | Select                    |
 | Sailing    | Arrow keys       | Set ship direction        |
 | Sailing    | C                | Toggle CRT filter         |
+| Sailing    | F                | Fleet info (at port only) |
 | Port/Island| Arrow keys       | Walk                      |
 | Port/Island| Enter            | Interact                  |
+| Port       | T                | Talk to nearby NPC        |
+| Port       | F                | Open fleet roster         |
+| Port       | M                | Open mission board        |
+| Port       | R                | Open reputation board     |
 | Port/Island| Q                | Return to ship            |
+| Fleet      | Up/Down          | Select ship               |
+| Fleet      | Space            | Set as flagship           |
+| Fleet      | X                | Sell ship                 |
+| Fleet      | Q/Enter          | Close                     |
 | Combat     | Arrow keys       | Aim / select              |
 | Combat     | Space            | Cycle ammo / confirm      |
 | Combat     | Enter            | Lock aim / confirm        |

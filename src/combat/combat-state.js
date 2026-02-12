@@ -1,5 +1,7 @@
 'use strict';
 
+const { getFlagship, getEffectiveStats } = require('../fleet/fleet');
+
 // Enemy ship templates for test combat
 const ENEMY_TEMPLATES = [
   { name: 'Swedish Corvette', hull: 80, crew: 40, masts: 2 },
@@ -28,14 +30,24 @@ function createCombatState(gameState) {
   const cannonBonus = gameState.economy ? (gameState.economy.cannonBonus || 0) : 0;
   const cannonCount = 2 + cannonBonus;
 
+  // Derive masts from fleet flagship if available
+  let playerMasts = 2;
+  if (gameState.fleet) {
+    const flagship = getFlagship(gameState.fleet);
+    if (flagship) {
+      const stats = getEffectiveStats(flagship);
+      if (stats) playerMasts = stats.masts;
+    }
+  }
+
   return {
     player: {
       hull: gameState.ship.hull,
       maxHull: gameState.ship.maxHull,
       crew: crewCount,
       maxCrew: maxCrew,
-      masts: 2,
-      maxMasts: 2,
+      masts: playerMasts,
+      maxMasts: playerMasts,
       cannons: cannonCount,
       maxCannons: cannonCount,
     },

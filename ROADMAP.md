@@ -181,6 +181,7 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 - [x] Fight triggers melee with Fort Guard template, flee uses distance roll
 - [x] Rewards: gold (50-200) + reputation changes
 - [x] Vision cone overlay rendering (olive/amber/red by alert state)
+- [x] Barrel hiding mechanic — press H to climb into barrel, shuffle around invisibly, "Just a barrel..." flavor
 - [x] Encounter "Infiltrate" choice for English faction ships
 
 **Files:** `stealth/stealth-map.js`, `stealth/guard-ai.js`, `modes/stealth.js`
@@ -211,6 +212,98 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 
 **Files:** `engine/save-load.js`, `render/crt-filter.js`
 
+### Phase 15: Rumors & Mission Board — COMPLETE
+
+- [x] Quest system state with day clock (30s/day), active contracts, and per-port rumor offers
+- [x] Procedural mission generation per port/day: delivery contracts + hunt bounties
+- [x] Mission board overlay in port mode with Available / Active / History tabs
+- [x] Contract accept/abandon flow, active quest progress display, and history outcomes
+- [x] Delivery auto turn-in at destination port if cargo requirement is met
+- [x] Hunt quest progression from naval victories, with bounty payout on port arrival
+- [x] Reputation + gold rewards from contracts, deadline expiry failures
+- [x] Save/load persistence for full quest state
+- [x] Input bindings for mission and reputation boards (`M` / `R`)
+
+**Files:** `world/quests.js`, `modes/port.js`, `modes/overworld.js`, `modes/drone-cam.js`, `engine/save-load.js`, `engine/input.js`
+
+### Phase 16: Day/Night Cycle & World Events — COMPLETE
+
+- [x] Day/night cycle tied to game-day clock (30s real-time = 1 day, dawn/day/dusk/night quarters)
+- [x] Night overlay: reduced FOV (moon-dependent 4-8), dimmed tile palette, lantern glow around ports
+- [x] Port curfew: harbor patrol density doubles at night, market and shipwright close at night
+- [x] Tavern activity increases at night: more recruits available (6 vs 4), higher bar fight chance (25%→40%)
+- [x] Random world events on day tick: trade boom (+30% prices at random port), plague (port closed 3 days), naval blockade (English ships cluster around a port), pirate raid (faction rep shifts)
+- [x] Event notification banners on overworld HUD with 5s fade (amber→dim, centered, up to 2)
+- [x] Seasonal weather bias: winter increases storm weight, summer favors clear skies
+- [x] Fog more common at dawn/dusk, storms more common at night
+- [x] Moon phase cycle (8 phases, 8 game-days): full moon increases night FOV to 8, new moon drops to 4
+- [x] Save/load persistence for day clock, active events (notifications cleared on load)
+
+**Files:** `world/day-night.js`, `world/events.js`
+
+### Phase 17: Ship Fleet & Captaincy — COMPLETE
+
+- [x] Ship types: sloop (starter), brigantine, frigate, galleon — each with distinct hull/speed/cargo/cannon stats
+- [x] Capture enemy ships after boarding victory (50% chance hull survives): added to fleet roster
+- [x] Purchase ships at shipwright in major ports (Copenhagen, Gothenburg, Aarhus) with port-gated availability
+- [x] Fleet roster UI overlay (F key): list owned ships, stats, flagship selector
+- [x] Flagship selection: determines player ship on overworld, others stored at port
+- [x] Per-ship upgrade bonuses: hull/speed/cannon/cargo bonuses sync between fleet and runtime state
+- [x] Ship repair and refit: per-ship hull repair at shipwright, upgrades apply to flagship and persist
+- [x] Ship naming: rename ships in fleet roster via Enter key
+- [x] Sell ships at fleet roster for 40% of base value (can't sell flagship)
+- [x] Fleet state saved/loaded with full ship data
+- [x] Combat masts derived from flagship type (sloop/brigantine=2, frigate/galleon=3)
+- [x] Max fleet size: 4 ships
+
+**Files:** `fleet/ship-types.js`, `fleet/fleet.js`, `fleet/fleet-ui.js`
+
+### Phase 18: Convoy & Escort Missions — PLANNED
+
+- [ ] Convoy travel mode: flagship + 1-2 fleet escorts moving as formation on overworld
+- [ ] Escort contract type on mission board: protect merchant convoy between ports, 60-90s time limit
+- [ ] Convoy NPC ships follow player at 0.8x speed, break formation if player moves too fast
+- [ ] Ambush encounters: pirate/English ships target convoy NPCs, player must engage or lose cargo
+- [ ] Convoy damage: escorted ships have hull HP, destroyed ships fail the contract
+- [ ] Successful escort: gold reward (100-300) + Merchant Guild reputation boost
+- [ ] Blockade runner missions: smuggle cargo past English naval line, stealth-adjacent (avoid detection radius)
+- [ ] Convoy HUD overlay: minimap dots showing escort ship positions and health
+- [ ] Formation controls: tight (slow, defensive) vs spread (fast, vulnerable) via Tab key
+- [ ] Escort ships provide supporting fire in cannon combat (bonus damage per surviving escort)
+
+**Files:** `modes/convoy.js`, `world/convoy-ai.js`
+
+### Phase 19: Story Campaign — PLANNED
+
+- [ ] 5-act main storyline: "The Kattegat Conspiracy" — uncover English plot to seize Danish straits
+- [ ] Act 1: Mysterious letter found in loot after first combat victory, points to Copenhagen contact
+- [ ] Act 2: Copenhagen informant (new NPC in tavern) sends player to intercept English dispatch ship
+- [ ] Act 3: Decoded dispatches reveal fleet rally point — stealth infiltration of English fort on Anholt
+- [ ] Act 4: Rally Danish allies — reputation gate (Crown ≥ Friendly), recruit allied ships for final battle
+- [ ] Act 5: Final naval battle at Helsingør narrows — multi-round combat with English flagship
+- [ ] Campaign journal UI (J key): quest log with act summaries, clues, and next objective
+- [ ] 6 story NPCs with portraits (ASCII art) and branching dialog trees
+- [ ] Key item inventory: letter, dispatch documents, royal seal, signal flags — used to unlock act transitions
+- [ ] 3 endings based on reputation balance: Danish hero, independent pirate king, infamous outlaw
+- [ ] Campaign progress persisted in save files, replayable with different faction paths
+
+**Files:** `story/campaign.js`, `story/dialog.js`, `story/journal-ui.js`, `story/npcs.js`
+
+### Phase 20: Achievements & Legacy — PLANNED
+
+- [ ] 20 achievements tracking lifetime stats: ships sunk, gold earned, ports visited, barrels hidden in, etc.
+- [ ] Achievement unlock notifications: toast overlay in top-right corner with title and icon (ASCII)
+- [ ] Legacy screen after campaign completion: stats summary, title earned, total play time
+- [ ] New Game+ mode: restart with one carried-over ship, 50% gold, all ports discovered on map
+- [ ] Difficulty settings on new game: Easy (1.5x gold, 0.7x damage taken), Normal, Hard (0.7x gold, 1.3x damage, faster guards)
+- [ ] Captain's log: auto-generated prose summary of key events per game-day, viewable in port (L key)
+- [ ] Hall of Fame: top 5 completed runs stored in `~/.kattegat-kaper/hall-of-fame.json`, shown on title screen
+- [ ] Persistent statistics across all saves: total ships sunk, gold earned, distance sailed
+- [ ] Cosmetic unlocks from achievements: alternate ship ASCII art, custom title screen color schemes
+- [ ] Final credits sequence after first campaign completion with ASCII art vignettes
+
+**Files:** `meta/achievements.js`, `meta/legacy.js`, `meta/captains-log.js`, `modes/credits.js`
+
 ---
 
 ## Current File Structure
@@ -233,7 +326,10 @@ src/
     ports.js            — 9 real Kattegat port locations
     npc-ships.js        — NPC ship spawning, AI, faction system
     factions.js         — Reputation & faction system (5 factions, tiers, ripple effects)
-    weather.js          — Weather state machine (clear/fog/rain/storm, effects, transitions)
+    weather.js          — Weather state machine (clear/fog/rain/storm, effects, biased transitions)
+    quests.js           — Contracts and rumors (generation, progression, rewards, turn-in)
+    day-night.js        — Day/night cycle (quarters, seasons, moon phases, dimming, sight range)
+    events.js           — World events (trade boom, plague, blockade, pirate raid)
   modes/
     title.js            — Title screen mode (save/load menu)
     overworld.js        — Main sailing mode (movement, wind, FOV, weather, CRT)
@@ -273,6 +369,10 @@ src/
   crew/
     crew.js             — Crew data model, morale, recruitment, roles
     crew-ui.js          — Tavern recruitment, roster, pay wages overlay
+  fleet/
+    ship-types.js       — Ship type definitions (sloop, brigantine, frigate, galleon)
+    fleet.js            — Fleet data model, flagship sync, add/remove/switch ships
+    fleet-ui.js         — Fleet roster overlay UI (view, switch, rename, sell)
 ```
 
 ---

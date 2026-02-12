@@ -12,7 +12,12 @@ const { FACTION_COLORS, createNPCShips, updateNPCShips, checkEncounter } = requi
 const { tickMorale } = require('../crew/crew');
 const { isPortAccessAllowed } = require('../world/factions');
 const { updateWeather, getWeatherEffects, FOG_HIDE_RANGE, RAIN_CHARS, FOG_CHARS } = require('../world/weather');
+const { advanceQuestTime } = require('../world/quests');
 const { applyCRTFilter, triggerBell } = require('../render/crt-filter');
+const { getQuarter, getSeason, getEffectiveSightRange, getWeatherBias,
+        getNightDimLevel, dimColor, isInLanternGlow } = require('../world/day-night');
+const { onDayAdvance, updateEventNotifications, isPortClosed } = require('../world/events');
+const { syncToGameState } = require('../fleet/fleet');
 
 // Movement direction vectors: N, NE, E, SE, S, SW, W, NW
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -43,6 +48,7 @@ class OverworldMode {
     this.camera = { x: 0, y: 0 };
     this.viewW = 0;
     this.viewH = 0;
+    this.showMap = false;
   }
 
   enter(gameState) {
@@ -71,6 +77,11 @@ class OverworldMode {
       gameState.npcShips = createNPCShips(gameState);
     }
 
+    // Sync fleet flagship stats into ship/economy
+    if (gameState.fleet) {
+      syncToGameState(gameState.fleet, gameState);
+    }
+
     // Cooldown to prevent re-triggering encounters immediately
     this.encounterCooldown = 1.0;
 
@@ -81,6 +92,7 @@ class OverworldMode {
   }
 
   exit() {
+    this.gameState.hudMessage = '';
     if (this.hudBox) {
       this.hudBox.detach();
       this.hudBox = null;
@@ -100,9 +112,15 @@ class OverworldMode {
     // Update wind
     this._updateWind(dt);
 
-    // Update weather
+    // Update weather with day/night + seasonal bias
     if (this.gameState.weather) {
-      updateWeather(this.gameState.weather, dt);
+      let weatherBias = undefined;
+      if (this.gameState.quests) {
+        const quarter = getQuarter(this.gameState.quests.clockAccum);
+        const season = getSeason(this.gameState.quests.day || 1);
+        weatherBias = getWeatherBias(quarter, season);
+      }
+      updateWeather(this.gameState.weather, dt, weatherBias);
 
       // Storm hull damage every 5 seconds
       const wx = this.gameState.weather;
@@ -111,8 +129,7 @@ class OverworldMode {
         const effects = getWeatherEffects(wx);
         if (effects.hullDmg > 0) {
           ship.hull = Math.max(1, ship.hull - effects.hullDmg);
-          this.moraleMessage = 'The storm batters your hull!';
-          this.moraleMessageTimer = 3.0;
+          this._pushNotice('The storm batters your hull!', 3.0);
         }
       }
     }
@@ -125,7 +142,22 @@ class OverworldMode {
       updateNPCShips(this.gameState.npcShips, this.gameState, dt);
     }
 
-    // Day timer — morale tick
+    // Day timer — morale tick + world events
+    if (this.gameState.quests) {
+      const daysAdvanced = advanceQuestTime(this.gameState.quests, dt);
+      // Fire world events on day boundaries
+      if (daysAdvanced > 0 && this.gameState.events) {
+        for (let d = 0; d < daysAdvanced; d++) {
+          onDayAdvance(this.gameState, this.gameState.quests.day - daysAdvanced + d + 1);
+        }
+      }
+    }
+
+    // Tick event notification timers
+    if (this.gameState.events) {
+      updateEventNotifications(this.gameState.events, dt);
+    }
+
     if (this.gameState.crew && this.gameState.crew.members.length > 0) {
       this.dayTimer -= dt;
       if (this.dayTimer <= 0) {
@@ -133,17 +165,29 @@ class OverworldMode {
         const events = tickMorale(this.gameState.crew, this.gameState.economy);
         for (const ev of events) {
           if (ev.type === 'desertion') {
-            this.moraleMessage = `${ev.member.name} has deserted!`;
-            this.moraleMessageTimer = 4.0;
+            this._pushNotice(`${ev.member.name} has deserted!`, 4.0);
           } else if (ev.type === 'mutiny') {
-            this.moraleMessage = 'The crew threatens mutiny!';
-            this.moraleMessageTimer = 5.0;
+            this._pushNotice('The crew threatens mutiny!', 5.0);
           }
         }
       }
     }
     if (this.moraleMessageTimer > 0) {
       this.moraleMessageTimer -= dt;
+      if (this.moraleMessageTimer <= 0) {
+        this.moraleMessage = '';
+        this.moraleMessageTimer = 0;
+      }
+    }
+
+    // Process queued notices if no message is currently displayed
+    if (this.moraleMessageTimer <= 0) {
+      if (this.gameState.noticeQueue && this.gameState.noticeQueue.length >0) {
+        const next = this.gameState.noticeQueue.shift();
+        this._pushNotice(next.message, next.duration);
+      } else if (Array.isArray(this.gameState.questNotices) && this.gameState.questNotices.length > 0) {
+        this._pushNotice(this.gameState.questNotices.shift(), 5.0);
+      }
     }
 
     // Encounter cooldown
@@ -182,8 +226,8 @@ class OverworldMode {
     // CRT post-processing
     applyCRTFilter(screen, this.gameState.crtEnabled);
 
-    // Render port labels
-    this._renderPortLabels(screen);
+    // Render port/island labels
+    this._renderLabels(screen);
 
     // Render NPC ships
     this._renderNPCShips(screen);
@@ -191,8 +235,18 @@ class OverworldMode {
     // Render player ship on top
     this._renderShip(screen);
 
+    // Event notification banners at top
+    this._renderEventBanners(screen);
+
+    this.gameState.hudMessage = this.moraleMessageTimer > 0 ? this.moraleMessage : '';
+
     // Update HUD content
     updateHUD(this.hudBox, this.gameState);
+
+    // Map overlay
+    if (this.showMap) {
+      this._renderMapOverlay(screen);
+    }
   }
 
   handleInput(key) {
@@ -209,6 +263,24 @@ class OverworldMode {
         this.gameState.portInfo = { name: port.name, desc: port.desc };
         this.stateMachine.transition('PORT', this.gameState);
       }
+      return;
+    }
+
+    // Map toggle
+    if (key === 'm') {
+      this.showMap = !this.showMap;
+      return;
+    }
+
+    // Reputation notice
+    if (key === 'r') {
+      this._pushNotice('Visit the Harbor Master for full standings.', 3.0);
+      return;
+    }
+
+    // Fleet roster notice
+    if (key === 'f') {
+      this._pushNotice('Visit a port to manage your fleet.', 3.0);
       return;
     }
 
@@ -287,10 +359,17 @@ class OverworldMode {
         if (tile === TILE.PORT) {
           const port = this._findPort(nx, ny);
           if (port) {
+            // Check plague closure
+            if (this.gameState.events && isPortClosed(this.gameState.events, port.name)) {
+              this._pushNotice(`${port.name} is under plague quarantine!`, 4.0);
+              ship.x -= DIR_DX[ship.direction];
+              ship.y -= DIR_DY[ship.direction];
+              ship.moveAccum = 0;
+              break;
+            }
             // Check Crown reputation for port access
             if (this.gameState.reputation && !isPortAccessAllowed(this.gameState.reputation, port.name)) {
-              this.moraleMessage = `The ${port.name} harbor master refuses you entry!`;
-              this.moraleMessageTimer = 4.0;
+              this._pushNotice(`The ${port.name} harbor master refuses you entry!`, 4.0);
               // Push ship back
               ship.x -= DIR_DX[ship.direction];
               ship.y -= DIR_DY[ship.direction];
@@ -329,9 +408,9 @@ class OverworldMode {
       }
     }
 
-    // Dynamic sight range from weather
+    // Dynamic sight range from weather + day/night
     const weatherEffects = this.gameState.weather ? getWeatherEffects(this.gameState.weather) : null;
-    const sightRange = weatherEffects ? weatherEffects.sightRange : SIGHT_RANGE;
+    const sightRange = getEffectiveSightRange(this.gameState.quests, weatherEffects);
 
     // Compute new FOV
     this.fov.compute(ship.x, ship.y, sightRange, (x, y, r, visibility) => {
@@ -355,6 +434,12 @@ class OverworldMode {
 
   _renderMap(screen) {
     const { map } = this.gameState;
+
+    // Compute night dim level once per frame
+    const quests = this.gameState.quests;
+    const quarter = quests ? getQuarter(quests.clockAccum) : 1;
+    const dimLevel = getNightDimLevel(quarter);
+    const ports = map.ports || [];
 
     for (let sy = 0; sy < this.viewH; sy++) {
       const my = this.camera.y + sy;
@@ -386,10 +471,16 @@ class OverworldMode {
           const def = TILE_DEFS[tileType];
           ch = getTileChar(tileType, mx, my, this.animFrame);
           attr = def ? def.attr : 0;
+
+          // Apply night dimming (skip tiles in lantern glow near ports)
+          if (dimLevel > 0 && !isInLanternGlow(mx, my, ports)) {
+            const fg = (attr >> 9) & 0x1FF;
+            const bg = attr & 0x1FF;
+            attr = (dimColor(fg, dimLevel) << 9) | dimColor(bg, dimLevel);
+          }
         }
 
         // Write directly to blessed's screen buffer
-        // row[sx] = [attr, ch]
         row[sx][0] = attr;
         row[sx][1] = ch;
       }
@@ -397,11 +488,12 @@ class OverworldMode {
 
     // Mark lines dirty so blessed knows to redraw them
     for (let sy = 0; sy < this.viewH; sy++) {
-      screen.lines[sy].dirty = true;
+      const line = screen.lines[sy];
+      if (line) line.dirty = true;
     }
   }
 
-  _renderPortLabels(screen) {
+  _renderLabels(screen) {
     const { map } = this.gameState;
     if (!map.ports) return;
 
@@ -617,7 +709,157 @@ class OverworldMode {
 
     row[sx][0] = SHIP_ATTR;
     row[sx][1] = DIR_CHARS[ship.direction];
-    screen.lines[sy].dirty = true;
+    if (screen.lines[sy]) screen.lines[sy].dirty = true;
+  }
+
+  _renderEventBanners(screen) {
+    const events = this.gameState.events;
+    if (!events || !events.notifications || events.notifications.length === 0) return;
+
+    // Show up to 2 banners at top of screen
+    const maxBanners = Math.min(2, events.notifications.length);
+    for (let i = 0; i < maxBanners; i++) {
+      const notif = events.notifications[i];
+      const row = screen.lines[i];
+      if (!row) continue;
+
+      // Fade from amber (178) to dim grey based on timer ratio
+      const fade = Math.max(0, Math.min(1, notif.timer / 5.0));
+      const colorIdx = fade > 0.5 ? 178 : (fade > 0.2 ? 136 : 240);
+      const attr = sattr(colorIdx, 233);
+
+      const text = notif.text;
+      const startX = Math.max(0, Math.floor((this.viewW - text.length) / 2));
+      for (let c = 0; c < text.length; c++) {
+        const x = startX + c;
+        if (x >= 0 && x < row.length) {
+          row[x][0] = attr;
+          row[x][1] = text[c];
+        }
+      }
+      row.dirty = true;
+    }
+  }
+
+  _pushNotice(message, duration) {
+    if (this.moraleMessageTimer > 0) {
+      if (!this.gameState.noticeQueue) {
+        this.gameState.noticeQueue = [];
+      }
+      this.gameState.noticeQueue.push({ message, duration: duration || 3.0 });
+    } else {
+      this.moraleMessage = message || '';
+      this.moraleMessageTimer = Math.max(0.1, duration || 3.0);
+    }
+  }
+
+  _renderMapOverlay(screen) {
+    const { map, ship } = this.gameState;
+    const sw = screen.width;
+    const sh = screen.height;
+
+    // Dimensions of the map UI (center of screen)
+    const mapW = Math.min(sw - 10, 100);
+    const mapH = Math.min(sh - 8, 50);
+    const px = Math.floor((sw - mapW) / 2);
+    const py = Math.floor((sh - mapH) / 2);
+
+    // Clear background for map area
+    for (let y = py; y < py + mapH; y++) {
+      const row = screen.lines[y];
+      if (!row) continue;
+      for (let x = px; x < px + mapW; x++) {
+        if (x < row.length) {
+          row[x][0] = sattr(232, 232); // dark grey
+          row[x][1] = ' ';
+        }
+      }
+      row.dirty = true;
+    }
+
+    // Border
+    const borderAttr = sattr(94, 232);
+    const drawLine = (y, x1, x2, ch) => {
+      const row = screen.lines[y];
+      if (!row) return;
+      for (let x = x1; x <= x2; x++) {
+        if (x < row.length) {
+          row[x][0] = borderAttr;
+          row[x][1] = ch;
+        }
+      }
+    };
+
+    drawLine(py, px, px + mapW - 1, '\u2500');
+    drawLine(py + mapH - 1, px, px + mapW - 1, '\u2500');
+    for (let y = py + 1; y < py + mapH - 1; y++) {
+      const row = screen.lines[y];
+      if (row) {
+        if (px < row.length) { row[px][0] = borderAttr; row[px][1] = '\u2502'; }
+        if (px + mapW - 1 < row.length) { row[px + mapW - 1][0] = borderAttr; row[px + mapW - 1][1] = '\u2502'; }
+      }
+    }
+
+    // Title
+    const title = ' WORLD MAP ';
+    const tx = px + Math.floor((mapW - title.length) / 2);
+    for (let i = 0; i < title.length; i++) {
+      const row = screen.lines[py];
+      if (row && tx + i < row.length) {
+        row[tx + i][0] = sattr(178, 232);
+        row[tx + i][1] = title[i];
+      }
+    }
+
+    // Scaling
+    const scaleX = map.width / (mapW - 2);
+    const scaleY = map.height / (mapH - 2);
+
+    for (let my = 0; my < mapH - 2; my++) {
+      const row = screen.lines[py + 1 + my];
+      if (!row) continue;
+      for (let mx = 0; mx < mapW - 2; mx++) {
+        const mapX = Math.floor(mx * scaleX);
+        const mapY = Math.floor(my * scaleY);
+        if (mapX >= map.width || mapY >= map.height) continue;
+
+        const idx = mapY * map.width + mapX;
+        const vis = this.visibility[idx];
+        const tile = map.tiles[idx];
+        const def = TILE_DEFS[tile];
+
+        let attr = 0;
+        let ch = ' ';
+
+        if (vis === VIS_UNEXPLORED) {
+          attr = sattr(232, 232);
+          ch = ' ';
+        } else {
+          attr = def ? def.attr : 0;
+          ch = getTileChar(tile, mapX, mapY, 0);
+
+          if (vis === VIS_EXPLORED) {
+            // Dim the color for explored but not visible
+            const fg = (attr >> 9) & 0x1FF;
+            const bg = attr & 0x1FF;
+            attr = (dimColor(fg, 1) << 9) | dimColor(bg, 1);
+          }
+        }
+
+        // Show player position as blinking or distinct char
+        const playerMatch = Math.abs(mapX - ship.x) < scaleX && Math.abs(mapY - ship.y) < scaleY;
+        if (playerMatch) {
+          attr = sattr(208, 232); // amber
+          ch = '@';
+        }
+
+        const sx = px + 1 + mx;
+        if (sx < row.length) {
+          row[sx][0] = attr;
+          row[sx][1] = ch;
+        }
+      }
+    }
   }
 }
 

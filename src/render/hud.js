@@ -2,6 +2,7 @@
 
 const blessed = require('neo-blessed');
 const { getWeatherEffects } = require('../world/weather');
+const { getQuarterName, getMoonPhase, getSeason } = require('../world/day-night');
 
 const COMPASS_NAMES = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const WIND_ARROWS = ['\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196'];
@@ -52,8 +53,20 @@ function updateHUD(box, gameState) {
     weatherStr = `    ${wx.label} ${wx.icon}`;
   }
 
-  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Speed: ${speed} kn${weatherStr}`;
-  const line2 = `  Pos: (${ship.x}, ${ship.y})    Hull: ${ship.hull}/${ship.maxHull}    ${ship.name}`;
+  // Day/night cycle display
+  let timeStr = '';
+  if (gameState.quests) {
+    const q = gameState.quests;
+    const quarter = getQuarterName(q.clockAccum);
+    const moon = getMoonPhase(q.day || 1);
+    const season = getSeason(q.day || 1);
+    timeStr = `    Day ${q.day || 1} ${quarter} ${moon.icon} ${season.name}`;
+  }
+
+  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Speed: ${speed} kn${weatherStr}${timeStr}`;
+  const defaultLine2 = `  Pos: (${ship.x}, ${ship.y})    Hull: ${ship.hull}/${ship.maxHull}    ${ship.name}`;
+  const notice = (gameState.hudMessage || '').replace(/[{}]/g, '').trim();
+  const line2 = notice ? `  Notice: ${notice}` : defaultLine2;
 
   box.setContent(`{bold}${line1}{/bold}\n${line2}`);
 }

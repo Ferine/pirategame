@@ -8,15 +8,14 @@ class InputHandler {
   }
 
   _bind() {
-    // Arrow keys
-    this.screen.key(['up', 'down', 'left', 'right'], (ch, key) => {
-      this.stateMachine.handleInput(key.name);
-    });
+    // Movement keys (Arrows + WASD)
+    const movementKeys = {
+      up: 'up', down: 'down', left: 'left', right: 'right',
+      w: 'up', a: 'left', s: 'down', d: 'right'
+    };
 
-    // WASD
-    this.screen.key(['w', 'a', 's', 'd'], (ch, key) => {
-      const map = { w: 'up', a: 'left', s: 'down', d: 'right' };
-      this.stateMachine.handleInput(map[key.name] || key.name);
+    this.screen.key(Object.keys(movementKeys), (ch, key) => {
+      this.stateMachine.handleInput(movementKeys[key.name] || key.name);
     });
 
     // Enter
@@ -47,6 +46,26 @@ class InputHandler {
     // X to dig (island exploration)
     this.screen.key(['x'], () => {
       this.stateMachine.handleInput('dig');
+    });
+
+    // T to talk (city NPCs)
+    this.screen.key(['t'], () => {
+      this.stateMachine.handleInput('talk');
+    });
+
+    // M for map or missions
+    this.screen.key(['m'], () => {
+      this.stateMachine.handleInput('m');
+    });
+
+    // R for reputation board
+    this.screen.key(['r'], () => {
+      this.stateMachine.handleInput('r');
+    });
+
+    // F for fleet roster
+    this.screen.key(['f'], () => {
+      this.stateMachine.handleInput('f');
     });
 
     // Q to quit

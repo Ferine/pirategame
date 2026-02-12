@@ -3,6 +3,8 @@
 const { sattr } = require('../render/tiles');
 const { MOVES, MOVE_LIST, ZONE_LIST, resolveRound, enemyAI, checkMeleeEnd, canAffordMove } = require('../combat/melee-state');
 const { getStanceArt, getClashFrame, PLAYER_COLOR, ENEMY_COLOR, SWORD_COLOR, ZONE_LABEL } = require('../combat/melee-art');
+const { getNpcShipType, createShip } = require('../fleet/ship-types');
+const { addShip, MAX_FLEET_SIZE } = require('../fleet/fleet');
 
 // Colors
 const BG = sattr(233, 233);
@@ -341,6 +343,9 @@ class MeleeMode {
         if (this.melee.loot.cargo) {
           _writeText(screen, py + 3, px + 3, `Cargo: ${this.melee.loot.cargoQty} ${this.melee.loot.cargo}`, TEXT_ATTR);
         }
+        if (this.melee.loot.capturedShip) {
+          _writeText(screen, py + 4, px + 3, `Ship captured: ${this.melee.loot.capturedShip}!`, VICTORY_ATTR);
+        }
       } else if (this.melee.context === 'barfight') {
         _writeText(screen, py + 2, px + 3, 'You win the brawl!', TEXT_ATTR);
         _writeText(screen, py + 3, px + 3, '+30 gold, crew morale up', TITLE_ATTR);
@@ -384,11 +389,31 @@ class MeleeMode {
         const cargoTypes = ['cod', 'herring', 'grain', 'timber', 'iron', 'silk'];
         const cargo = cargoTypes[Math.floor(Math.random() * cargoTypes.length)];
         const cargoQty = 2 + Math.floor(Math.random() * 4);
-        m.loot = { gold, cargo, cargoQty };
+        m.loot = { gold, cargo, cargoQty, capturedShip: null };
 
         if (gs.economy) {
           gs.economy.gold += gold;
           gs.economy.cargo[cargo] = (gs.economy.cargo[cargo] || 0) + cargoQty;
+        }
+
+        // 50% chance to capture the boarded ship
+        if (gs.fleet && Math.random() < 0.5 && gs.fleet.ships.length < MAX_FLEET_SIZE) {
+          // Look up the NPC we boarded (encounter is already null, use boardingNpcId)
+          let npc = null;
+          if (gs.boardingNpcId && gs.npcShips) {
+            npc = gs.npcShips.find(s => s.id === gs.boardingNpcId) || null;
+          }
+          const faction = npc ? npc.faction : 'pirate';
+          const typeId = getNpcShipType(faction);
+          const shipName = npc ? npc.name : 'Captured Ship';
+          const captured = createShip(typeId, shipName);
+          if (captured) {
+            // Captured at 30% hull
+            captured.hull = Math.floor(captured.maxHull * 0.3);
+            if (addShip(gs.fleet, captured)) {
+              m.loot.capturedShip = captured.name;
+            }
+          }
         }
 
         // Victory morale

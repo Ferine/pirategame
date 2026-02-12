@@ -48,12 +48,30 @@ function createWeatherState() {
 /**
  * Update weather: handle transitions and storm damage timer.
  */
-function updateWeather(weather, dt) {
+function updateWeather(weather, dt, bias) {
   weather.changeTimer -= dt;
 
   if (weather.changeTimer <= 0) {
-    // Transition to new weather type
-    const weights = TRANSITION_WEIGHTS[weather.type];
+    // Transition to new weather type, optionally biased by time/season
+    const baseWeights = TRANSITION_WEIGHTS[weather.type];
+    const weights = baseWeights.slice();
+
+    // Apply bias multipliers if provided
+    if (bias) {
+      for (let i = 0; i < WEATHER_TYPES.length; i++) {
+        const key = WEATHER_TYPES[i];
+        if (bias[key] !== undefined) {
+          weights[i] *= bias[key];
+        }
+      }
+    }
+
+    // Normalize weights
+    const total = weights.reduce((s, w) => s + w, 0);
+    if (total > 0) {
+      for (let i = 0; i < weights.length; i++) weights[i] /= total;
+    }
+
     const roll = Math.random();
     let cumulative = 0;
     let nextType = 'clear';

@@ -1,8 +1,17 @@
 'use strict';
 
-const blessed = require('neo-blessed');
+function _normalizeTermForBlessed() {
+  const term = (process.env.TERM || '').toLowerCase();
+  // Ghostty's terminfo capabilities can trip neo-blessed parsing.
+  if (term === 'xterm-ghostty' || term === 'ghostty') {
+    process.env.TERM = 'xterm-256color';
+  }
+}
 
 function createScreen() {
+  _normalizeTermForBlessed();
+  const blessed = require('neo-blessed');
+
   const screen = blessed.screen({
     smartCSR: true,
     fullUnicode: true,

@@ -3,6 +3,9 @@
 const { sattr } = require('../render/tiles');
 const { GOODS, UPGRADES, generatePriceTable, cargoCount } = require('./goods');
 const { getTradePriceModifier, applyAction } = require('../world/factions');
+const { getTradePriceMult } = require('../world/events');
+const { getShipsForSale, createShip } = require('../fleet/ship-types');
+const { addShip, MAX_FLEET_SIZE, getFlagship, syncFromGameState } = require('../fleet/fleet');
 
 // Colors
 const BG = sattr(233, 233);
@@ -33,7 +36,8 @@ function createShopState(type, portName, gameState) {
   };
 
   if (type === 'market') {
-    state.prices = generatePriceTable(portName);
+    const eventMult = gameState.events ? getTradePriceMult(gameState.events, portName) : 1.0;
+    state.prices = generatePriceTable(portName, eventMult);
 
     // Apply reputation-based price modifier
     if (gameState.reputation) {
@@ -43,6 +47,10 @@ function createShopState(type, portName, gameState) {
         state.prices[goodId].sell = Math.round(state.prices[goodId].sell * mod.sellMult);
       }
     }
+  }
+
+  if (type === 'shipwright') {
+    state.shipsForSale = getShipsForSale(portName);
   }
 
   return state;
@@ -67,7 +75,8 @@ function shopHandleInput(key, shop, gameState) {
   }
 
   if (key === 'down') {
-    const maxItems = shop.type === 'market' ? GOODS.length : UPGRADES.length;
+    const maxItems = shop.type === 'market' ? GOODS.length
+      : UPGRADES.length + (shop.shipsForSale ? shop.shipsForSale.length : 0);
     shop.cursor = Math.min(maxItems - 1, shop.cursor + 1);
     return true;
   }
@@ -122,46 +131,79 @@ function shopHandleInput(key, shop, gameState) {
   }
 
   if (shop.type === 'shipwright') {
-    // Space to purchase upgrade
+    // Space to purchase upgrade or ship
     if (key === 'space') {
-      const upgrade = UPGRADES[shop.cursor];
-      if (!upgrade) return true;
+      // Check if cursor is on an upgrade or a ship for sale
+      if (shop.cursor < UPGRADES.length) {
+        const upgrade = UPGRADES[shop.cursor];
+        if (!upgrade) return true;
 
-      if (eco.gold < upgrade.cost) {
-        shop.message = 'Not enough rigsdaler.';
-        shop.messageTimer = 2.0;
+        if (eco.gold < upgrade.cost) {
+          shop.message = 'Not enough rigsdaler.';
+          shop.messageTimer = 2.0;
+          return true;
+        }
+
+        // Apply upgrade
+        eco.gold -= upgrade.cost;
+        const ship = gameState.ship;
+
+        switch (upgrade.type) {
+          case 'repair':
+            ship.hull = ship.maxHull;
+            shop.message = 'Hull fully repaired.';
+            break;
+          case 'hull':
+            ship.maxHull += upgrade.bonus;
+            ship.hull += upgrade.bonus;
+            shop.message = `Max hull increased to ${ship.maxHull}.`;
+            break;
+          case 'cargo':
+            eco.cargoMax += upgrade.bonus;
+            shop.message = `Cargo hold expanded to ${eco.cargoMax}.`;
+            break;
+          case 'speed':
+            eco.speedBonus += upgrade.bonus;
+            shop.message = `Sails upgraded. Speed +${Math.round(upgrade.bonus * 100)}%.`;
+            break;
+          case 'cannon':
+            eco.cannonBonus += upgrade.bonus;
+            shop.message = `Extra cannon installed. Total bonus: ${eco.cannonBonus}.`;
+            break;
+        }
+
+        // Sync upgrade to fleet flagship
+        if (gameState.fleet) {
+          syncFromGameState(gameState.fleet, gameState);
+        }
+
+        shop.messageTimer = 2.5;
+        return true;
+      } else {
+        // Ship purchase
+        const shipIdx = shop.cursor - UPGRADES.length;
+        const forSale = shop.shipsForSale ? shop.shipsForSale[shipIdx] : null;
+        if (!forSale) return true;
+
+        if (eco.gold < forSale.cost) {
+          shop.message = 'Not enough rigsdaler.';
+          shop.messageTimer = 2.0;
+          return true;
+        }
+
+        if (!gameState.fleet || gameState.fleet.ships.length >= MAX_FLEET_SIZE) {
+          shop.message = `Fleet is full (max ${MAX_FLEET_SIZE} ships).`;
+          shop.messageTimer = 2.0;
+          return true;
+        }
+
+        eco.gold -= forSale.cost;
+        const newShip = createShip(forSale.typeId, forSale.name);
+        addShip(gameState.fleet, newShip);
+        shop.message = `Purchased ${newShip.name}! Check fleet roster (F).`;
+        shop.messageTimer = 3.0;
         return true;
       }
-
-      // Apply upgrade
-      eco.gold -= upgrade.cost;
-      const ship = gameState.ship;
-
-      switch (upgrade.type) {
-        case 'repair':
-          ship.hull = ship.maxHull;
-          shop.message = 'Hull fully repaired.';
-          break;
-        case 'hull':
-          ship.maxHull += upgrade.bonus;
-          ship.hull += upgrade.bonus;
-          shop.message = `Max hull increased to ${ship.maxHull}.`;
-          break;
-        case 'cargo':
-          eco.cargoMax += upgrade.bonus;
-          shop.message = `Cargo hold expanded to ${eco.cargoMax}.`;
-          break;
-        case 'speed':
-          eco.speedBonus += upgrade.bonus;
-          shop.message = `Sails upgraded. Speed +${Math.round(upgrade.bonus * 100)}%.`;
-          break;
-        case 'cannon':
-          eco.cannonBonus += upgrade.bonus;
-          shop.message = `Extra cannon installed. Total bonus: ${eco.cannonBonus}.`;
-          break;
-      }
-      shop.messageTimer = 2.5;
-      return true;
     }
   }
 
@@ -332,9 +374,11 @@ function _renderShipwright(screen, shop, eco, gameState, px, py, panelW, panelH)
   }
 
   // Upgrades list
+  let lastRowY = headerY + 2;
   for (let i = 0; i < UPGRADES.length; i++) {
     const rowY = headerY + 2 + i;
     if (rowY >= py + panelH - 3) break;
+    lastRowY = rowY + 1;
 
     const upg = UPGRADES[i];
     const isSelected = i === shop.cursor;
@@ -357,6 +401,45 @@ function _renderShipwright(screen, shop, eco, gameState, px, py, panelW, panelH)
     _writeText(screen, rowY, colName, upg.name, rowAttr);
     _writeText(screen, rowY, colDesc, upg.desc, rowAttr);
     _writeText(screen, rowY, colCost, `${upg.cost} rds`, costAttr);
+  }
+
+  // Ships for sale section
+  if (shop.shipsForSale && shop.shipsForSale.length > 0) {
+    const shipHeaderY = lastRowY + 1;
+    if (shipHeaderY < py + panelH - 3) {
+      _writeText(screen, shipHeaderY, colName, 'Ships for Sale', HEADER);
+      _writeText(screen, shipHeaderY, colDesc, 'Hull/Cargo/Guns', HEADER);
+      _writeText(screen, shipHeaderY, colCost, 'Cost', HEADER);
+
+      for (let i = 0; i < shop.shipsForSale.length; i++) {
+        const rowY = shipHeaderY + 1 + i;
+        if (rowY >= py + panelH - 3) break;
+
+        const fs = shop.shipsForSale[i];
+        const globalIdx = UPGRADES.length + i;
+        const isSelected = globalIdx === shop.cursor;
+        const canAfford = eco.gold >= fs.cost;
+        const fleetFull = gameState.fleet && gameState.fleet.ships.length >= MAX_FLEET_SIZE;
+        const rowAttr = isSelected ? ROW_SELECTED : ROW_NORMAL;
+        const costAttr = isSelected ? ROW_SELECTED : (canAfford && !fleetFull ? GOOD_COLOR : CANT_AFFORD);
+
+        if (isSelected) {
+          const row = screen.lines[rowY];
+          if (row) {
+            for (let x = px + 2; x < px + panelW - 2 && x < row.length; x++) {
+              row[x][0] = ROW_SELECTED;
+              row[x][1] = ' ';
+            }
+          }
+        }
+
+        const pointer = isSelected ? '\u25B6 ' : '  ';
+        _writeText(screen, rowY, colName - 2, pointer, rowAttr);
+        _writeText(screen, rowY, colName, fs.name, rowAttr);
+        _writeText(screen, rowY, colDesc, `${fs.hull}hp ${fs.cargoMax}cg ${fs.cannons}cn`, rowAttr);
+        _writeText(screen, rowY, colCost, `${fs.cost} rds`, costAttr);
+      }
+    }
   }
 }
 

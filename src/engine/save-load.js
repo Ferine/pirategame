@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { createQuestState } = require('../world/quests');
+const { createFleetState, syncFromGameState: fleetSyncFrom } = require('../fleet/fleet');
 
 const SAVE_DIR = path.join(os.homedir(), '.kattegat-kaper');
 
@@ -32,7 +34,10 @@ function serializeGameState(gameState) {
     } : null,
     reputation: gameState.reputation ? { ...gameState.reputation } : null,
     weather: gameState.weather ? { ...gameState.weather } : null,
+    quests: gameState.quests ? JSON.parse(JSON.stringify(gameState.quests)) : null,
+    events: gameState.events ? JSON.parse(JSON.stringify(gameState.events)) : null,
     treasureMaps: gameState.treasureMaps ? gameState.treasureMaps.map(t => ({ ...t })) : [],
+    fleet: gameState.fleet ? JSON.parse(JSON.stringify(gameState.fleet)) : null,
     crtEnabled: gameState.crtEnabled || false,
   };
 
@@ -70,8 +75,8 @@ function deserializeGameState(json, gameState) {
 
   // Restore crew
   if (data.crew && gameState.crew) {
-    gameState.crew.members = data.crew.members || [];
-    gameState.crew.avgMorale = data.crew.avgMorale || 5;
+    gameState.crew.members = Array.isArray(data.crew.members) ? data.crew.members : [];
+    gameState.crew.avgMorale = data.crew.avgMorale ?? 5;
   }
 
   // Restore reputation
@@ -84,9 +89,34 @@ function deserializeGameState(json, gameState) {
     Object.assign(gameState.weather, data.weather);
   }
 
+  // Restore quests
+  if (data.quests) {
+    gameState.quests = data.quests;
+  } else if (!gameState.quests) {
+    gameState.quests = createQuestState();
+  }
+
+  // Restore events
+  if (data.events) {
+    gameState.events = data.events;
+    // Clear stale notifications on load
+    if (gameState.events.notifications) {
+      gameState.events.notifications = [];
+    }
+  }
+
   // Restore treasure maps
   if (data.treasureMaps) {
     gameState.treasureMaps = data.treasureMaps;
+  }
+
+  // Restore fleet
+  if (data.fleet) {
+    gameState.fleet = data.fleet;
+  } else {
+    // Old save without fleet: create fleet from current ship state
+    gameState.fleet = createFleetState(gameState.ship.name || 'Drakar');
+    fleetSyncFrom(gameState.fleet, gameState);
   }
 
   // Restore CRT toggle

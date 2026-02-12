@@ -138,8 +138,18 @@ function updateNPCShips(ships, gameState, dt) {
   if (ships.length < MAX_NPC_SHIPS) {
     const needed = Math.min(2, MAX_NPC_SHIPS - ships.length);
     const factions = [FACTION.MERCHANT, FACTION.ENGLISH, FACTION.PIRATE, FACTION.DANISH];
+
+    // Check for active naval blockade event
+    const hasBlockade = gameState.events && gameState.events.active &&
+      gameState.events.active.some(e => e.type === 'naval_blockade');
+
     for (let i = 0; i < needed; i++) {
-      const faction = factions[Math.floor(Math.random() * factions.length)];
+      let faction;
+      if (hasBlockade && Math.random() < 0.6) {
+        faction = FACTION.ENGLISH;
+      } else {
+        faction = factions[Math.floor(Math.random() * factions.length)];
+      }
       const newShip = _spawnOneShip(map, player.x, player.y, faction);
       if (newShip) ships.push(newShip);
     }

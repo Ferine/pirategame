@@ -51,12 +51,13 @@ function createGuard(spawn) {
 
 /**
  * Update a single guard.
- * Returns 'combat' if guard reaches combat state, null otherwise.
+ * Returns 'combat' if guard reaches combat state, 'barrel_noticed' if
+ * a patrolling guard is adjacent to a hiding player, null otherwise.
  */
-function updateGuard(guard, playerX, playerY, map, dt, allGuards) {
+function updateGuard(guard, playerX, playerY, map, dt, allGuards, isHiding) {
   if (!guard.alive) return null;
 
-  const canSee = canGuardSeePlayer(guard, playerX, playerY, map);
+  const canSee = canGuardSeePlayer(guard, playerX, playerY, map, isHiding);
 
   // Update alert state
   switch (guard.alertState) {
@@ -135,16 +136,32 @@ function updateGuard(guard, playerX, playerY, map, dt, allGuards) {
     }
   }
 
+  // "Just a barrel..." — patrol guard adjacent to hiding player
+  if (isHiding && guard.alertState === ALERT.PATROL) {
+    const dist = Math.abs(guard.x - playerX) + Math.abs(guard.y - playerY);
+    if (dist <= 1) return 'barrel_noticed';
+  }
+
   return null;
 }
 
 /**
  * Can guard see the player? Uses vision cone + LOS raycast.
+ * If isHiding is true, the player is invisible except to alert/combat guards at dist ≤ 1.
  */
-function canGuardSeePlayer(guard, px, py, map) {
+function canGuardSeePlayer(guard, px, py, map, isHiding) {
   const dx = px - guard.x;
   const dy = py - guard.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
+
+  // Barrel hiding: invisible to most guards
+  if (isHiding) {
+    // Alert/combat guards can still detect at adjacency
+    if ((guard.alertState === ALERT.ALERT || guard.alertState === ALERT.COMBAT) && dist <= DETECT_ADJACENT) {
+      return true;
+    }
+    return false;
+  }
 
   // Always detect adjacent
   if (dist <= DETECT_ADJACENT) return true;

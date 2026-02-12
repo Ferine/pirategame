@@ -2,6 +2,7 @@
 
 const { SPRITES, LANE_SPRITES } = require('./harbor-art');
 const { getHarborDifficulty } = require('../world/factions');
+const { getQuarter } = require('../world/day-night');
 
 // Lane type configs
 const LANE_CONFIGS = {
@@ -231,7 +232,14 @@ function checkCollision(lanes, playerCol, playerRow) {
  */
 function createHarborState(gameState, port) {
   // Navy notoriety scales harbor difficulty (obstacle speed & spawn rate)
-  const diffMult = gameState.reputation ? getHarborDifficulty(gameState.reputation) : 1.0;
+  let diffMult = gameState.reputation ? getHarborDifficulty(gameState.reputation) : 1.0;
+
+  // Night multiplier: more dangerous harbor at night
+  if (gameState.quests) {
+    const quarter = getQuarter(gameState.quests.clockAccum);
+    if (quarter === 3) diffMult *= 2.0;       // night
+    else if (quarter === 0 || quarter === 2) diffMult *= 1.3; // dawn/dusk
+  }
 
   return {
     portName: port.name,

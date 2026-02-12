@@ -30,12 +30,12 @@ function moraleColor(val) {
 /**
  * Create tavern/crew overlay state.
  */
-function createCrewUIState(portName, gameState) {
+function createCrewUIState(portName, gameState, candidateCount) {
   return {
     portName,
     tab: 'roster',  // 'roster', 'recruit', 'pay'
     cursor: 0,
-    candidates: generateCandidates(portName, 4),
+    candidates: generateCandidates(portName, candidateCount || 4),
     message: '',
     messageTimer: 0,
     roleMenu: false,  // true when assigning role

@@ -9,6 +9,8 @@ const { applyAction } = require('../world/factions');
 
 const PLAYER_CH = '@';
 const PLAYER_ATTR = sattr(208, 0);
+const BARREL_CH = 'o';
+const BARREL_ATTR = sattr(94, 58);
 const SIGHT_RANGE = 10;
 const HUD_ROWS = 3;
 
@@ -50,6 +52,8 @@ class StealthMode {
     this.resultType = null;  // 'success', 'partial', 'failure'
     this.resultTimer = 0;
     this.detectedGuard = null;
+    this.isHiding = false;
+    this.barrelMsgCooldown = 0;
   }
 
   enter(gameState) {
@@ -68,6 +72,7 @@ class StealthMode {
       this.objectivesTotal = s.objectivesTotal;
       this.visible = s.visible;
       this.explored = s.explored;
+      this.isHiding = s.isHiding || false;
       this.phase = 'stealth';
 
       // Rebuild FOV
@@ -154,6 +159,8 @@ class StealthMode {
     this.resultType = null;
     this.resultTimer = 0;
     this.detectedGuard = null;
+    this.isHiding = false;
+    this.barrelMsgCooldown = 0;
     this.message = `Infiltrating the ${this.map.name}. Stay hidden.`;
     this.messageTimer = 4.0;
   }
@@ -184,15 +191,24 @@ class StealthMode {
 
     if (this.phase === 'detected') return;
 
+    // Barrel message cooldown
+    if (this.barrelMsgCooldown > 0) this.barrelMsgCooldown -= dt;
+
     // Update guards
     for (const guard of this.guards) {
-      const result = updateGuard(guard, this.playerX, this.playerY, this.map, dt, this.guards);
+      const result = updateGuard(guard, this.playerX, this.playerY, this.map, dt, this.guards, this.isHiding);
       if (result === 'combat') {
+        this.isHiding = false;
         this.detectedGuard = guard;
         this.phase = 'detected';
         this.message = 'Spotted! Fight or flee?';
         this.messageTimer = 10.0;
         return;
+      }
+      if (result === 'barrel_noticed' && this.barrelMsgCooldown <= 0) {
+        this.message = 'Just a barrel...';
+        this.messageTimer = 2.0;
+        this.barrelMsgCooldown = 4.0;
       }
     }
   }
@@ -260,6 +276,11 @@ class StealthMode {
       return;
     }
 
+    if (key === 'h') {
+      this._toggleBarrel();
+      return;
+    }
+
     if (key === 'enter') {
       this._interact();
       return;
@@ -298,6 +319,40 @@ class StealthMode {
       this.message = 'An objective! Press ENTER to complete it.';
       this.messageTimer = 4.0;
     }
+  }
+
+  _toggleBarrel() {
+    if (this.isHiding) {
+      // Exit barrel
+      this.isHiding = false;
+      this.message = 'You climb out of the barrel.';
+      this.messageTimer = 2.5;
+      this._computeFOV();
+      return;
+    }
+
+    // Enter barrel — scan 4 cardinal neighbors
+    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    for (const [dx, dy] of dirs) {
+      const bx = this.playerX + dx;
+      const by = this.playerY + dy;
+      if (bx < 0 || bx >= this.map.width || by < 0 || by >= this.map.height) continue;
+      const idx = by * this.map.width + bx;
+      if (this.map.tiles[idx] === ST.BARREL) {
+        // Consume barrel, move player into it
+        this.map.tiles[idx] = ST.STONE_FLOOR;
+        this.playerX = bx;
+        this.playerY = by;
+        this.isHiding = true;
+        this.message = 'You climb into a barrel...';
+        this.messageTimer = 2.5;
+        this._computeFOV();
+        return;
+      }
+    }
+
+    this.message = 'No barrel nearby.';
+    this.messageTimer = 2.0;
   }
 
   _interact() {
@@ -346,6 +401,7 @@ class StealthMode {
       objectivesTotal: this.objectivesTotal,
       visible: this.visible,
       explored: this.explored,
+      isHiding: this.isHiding,
     };
 
     const override = {
@@ -552,8 +608,13 @@ class StealthMode {
     if (sx < 0 || sx >= this.viewW || sy < 0 || sy >= this.viewH) return;
     const row = screen.lines[sy];
     if (!row || sx >= row.length) return;
-    row[sx][0] = PLAYER_ATTR;
-    row[sx][1] = PLAYER_CH;
+    if (this.isHiding) {
+      row[sx][0] = BARREL_ATTR;
+      row[sx][1] = BARREL_CH;
+    } else {
+      row[sx][0] = PLAYER_ATTR;
+      row[sx][1] = PLAYER_CH;
+    }
   }
 
   _renderHUD(screen) {
@@ -595,10 +656,14 @@ class StealthMode {
     if (maxAlert === 2) { alertLabel = 'DANGER';  alertAttr = sattr(160, 233); }
 
     const objStr = `Objectives: ${this.objectivesCompleted}/${this.objectivesTotal}`;
-    const line1 = ` STEALTH  |  ${objStr}  |  Arrows: Move  Enter: Interact  Q: Abort`;
+    const barrelKey = this.isHiding ? 'H: Exit' : 'H: Barrel';
+    const line1 = ` STEALTH  |  ${objStr}  |  Arrows: Move  Enter: Interact  ${barrelKey}  Q: Abort`;
     this._writeHudText(screen, baseY + 1, 0, line1, hudAttr);
 
-    // Alert status
+    // Alert status + barrel indicator
+    const barrelTag = this.isHiding ? '[BARREL] ' : '';
+    const statusStr = barrelTag + alertLabel;
+    this._writeHudText(screen, baseY + 1, screen.width - statusStr.length - 2, barrelTag, sattr(94, 233));
     this._writeHudText(screen, baseY + 1, screen.width - alertLabel.length - 2, alertLabel, alertAttr);
 
     // Message

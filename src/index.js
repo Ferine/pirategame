@@ -1,5 +1,10 @@
 'use strict';
 
+const term = (process.env.TERM || '').toLowerCase();
+if (term === 'xterm-ghostty' || term === 'ghostty') {
+  process.env.TERM = 'xterm-256color';
+}
+
 const { createScreen } = require('./engine/screen');
 const { StateMachine } = require('./engine/state');
 const { GameLoop } = require('./engine/game-loop');
@@ -20,6 +25,9 @@ const { createEconomyState } = require('./economy/goods');
 const { createCrewState } = require('./crew/crew');
 const { createReputationState } = require('./world/factions');
 const { createWeatherState } = require('./world/weather');
+const { createQuestState } = require('./world/quests');
+const { createEventsState } = require('./world/events');
+const { createFleetState } = require('./fleet/fleet');
 
 async function main() {
   const screen = createScreen();
@@ -71,6 +79,10 @@ async function main() {
     crew: createCrewState(),
     reputation: createReputationState(),
     weather: createWeatherState(),
+    quests: createQuestState(),
+    events: createEventsState(),
+    fleet: createFleetState('Drakar'),
+    questNotices: [],
     treasureMaps: [],
     melee: null,
     meleeResult: null,

@@ -6,9 +6,11 @@ const { getShipScale, getShipArt, HULL_COLOR, SAIL_COLOR, WATER_COLOR } = requir
 const { explosionFrame, splashFrame, renderParticles } = require('../combat/effects');
 const { calculatePlayerDamage, applyDamageToEnemy, enemyFire, checkCombatEnd } = require('../combat/combat-state');
 const { removeNPCShip } = require('../world/npc-ships');
+const { recordShipDefeat } = require('../world/quests');
 const { onVictory, onLoss } = require('../crew/crew');
 const { applyAction, getDefeatAction } = require('../world/factions');
 const { createTreasureMap } = require('../island/treasure');
+const { syncFromGameState } = require('../fleet/fleet');
 
 // Sub-phases within drone cam
 const PHASE_FLIGHT = 0;
@@ -418,6 +420,13 @@ class DroneCamMode {
       removeNPCShip(this.gameState.npcShips, combat.npcId);
 
       if (combat.victor === 'player') {
+        if (this.gameState.quests && combat.npcFaction) {
+          const updates = recordShipDefeat(this.gameState.quests, combat.npcFaction);
+          if (updates.length) {
+            this.gameState.questNotices = (this.gameState.questNotices || []).concat(updates);
+          }
+        }
+
         // Reputation effect for defeating this faction
         if (this.gameState.reputation && combat.npcFaction) {
           const actionId = getDefeatAction(combat.npcFaction);
@@ -467,6 +476,11 @@ class DroneCamMode {
       } else if (combat.victor === 'enemy') {
         onLoss(this.gameState.crew);
       }
+    }
+
+    // Sync hull damage back to fleet
+    if (this.gameState.fleet) {
+      syncFromGameState(this.gameState.fleet, this.gameState);
     }
 
     this.gameState.combat = null;

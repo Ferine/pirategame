@@ -11,6 +11,16 @@ const { createMeleeState } = require('../combat/melee-state');
 const { spawnTownNPCs } = require('../port/town-npcs');
 const { saveGame } = require('../engine/save-load');
 const { relocateShipToSafeWater } = require('../world/navigation');
+const {
+  ensureQuestState,
+  getPortOffers,
+  acceptPortOffer,
+  abandonActiveQuest,
+  resolvePortArrivalQuests,
+} = require('../world/quests');
+const { getQuarter } = require('../world/day-night');
+const { createFleetUIState, fleetHandleInput, fleetUpdate, fleetRender } = require('../fleet/fleet-ui');
+const { syncFromGameState, syncToGameState } = require('../fleet/fleet');
 
 const PLAYER_CH = '@';
 const PLAYER_ATTR = sattr(208, 0); // amber on black
@@ -62,7 +72,9 @@ class PortMode {
     this.shop = null;    // active shop overlay (market or shipwright)
     this.crewUI = null;  // active crew/tavern overlay
     this.repUI = false;  // reputation display overlay (harbor master)
+    this.questUI = null; // mission board overlay
     this.npcs = [];      // town NPCs
+    this.fleetUI = null; // fleet roster overlay
   }
 
   enter(gameState) {
@@ -95,11 +107,29 @@ class PortMode {
     this.message = `You step ashore at ${this.portName}.`;
     this.messageTimer = 4.0;
 
+    // Ensure quests are initialized and resolve any completed/failed contracts.
+    ensureQuestState(gameState);
+    const questEvents = resolvePortArrivalQuests(gameState, this.portName);
+    if (questEvents.length > 0) {
+      this.message = questEvents[0];
+      this.messageTimer = 6.0;
+    } else if (gameState.questNotices && gameState.questNotices.length > 0) {
+      this.message = gameState.questNotices.shift();
+      this.messageTimer = 5.0;
+    }
+
     // Spawn town NPCs
     this.npcs = spawnTownNPCs(this.townMap);
 
+    // Sync fleet on port entry
+    if (gameState.fleet) {
+      syncFromGameState(gameState.fleet, gameState);
+    }
+
     // Auto-save on port visit
-    saveGame(gameState, 'auto');
+    if (saveGame(gameState, 'auto')) {
+      this.message += ' Game saved.';
+    }
 
     // Crew morale boost from port visit
     if (gameState.crew) {
@@ -112,6 +142,8 @@ class PortMode {
     this.visible = null;
     this.explored = null;
     this.fov = null;
+    this.questUI = null;
+    this.fleetUI = null;
   }
 
   update(dt) {
@@ -138,6 +170,11 @@ class PortMode {
     // Crew UI overlay
     if (this.crewUI) {
       crewUpdate(dt, this.crewUI);
+    }
+
+    // Fleet UI overlay
+    if (this.fleetUI) {
+      fleetUpdate(dt, this.fleetUI);
     }
   }
 
@@ -222,14 +259,39 @@ class PortMode {
     if (this.repUI) {
       this._renderReputationUI(screen);
     }
+
+    // Mission board overlay
+    if (this.questUI) {
+      this._renderQuestBoard(screen);
+    }
+
+    // Fleet roster overlay
+    if (this.fleetUI) {
+      fleetRender(screen, this.fleetUI, this.gameState);
+    }
   }
 
   handleInput(key) {
+    // Route to fleet UI if open
+    if (this.fleetUI) {
+      const consumed = fleetHandleInput(key, this.fleetUI, this.gameState);
+      if (!consumed) {
+        this.fleetUI = null;
+      }
+      return;
+    }
+
     // Route to reputation display if open
     if (this.repUI) {
       if (key === 'q' || key === 'enter' || key === 'space') {
         this.repUI = false;
       }
+      return;
+    }
+
+    // Route to mission board if open
+    if (this.questUI) {
+      this._handleQuestInput(key);
       return;
     }
 
@@ -248,6 +310,33 @@ class PortMode {
       if (!consumed) {
         this.shop = null; // close shop
       }
+      return;
+    }
+
+    // Talk to nearby NPC without triggering building interactions
+    if (key === 'talk') {
+      const npc = this._findAdjacentNPC();
+      if (npc) {
+        this.message = npc.greeting;
+      } else {
+        this.message = 'No one nearby to talk to.';
+      }
+      this.messageTimer = 4.0;
+      return;
+    }
+
+    if (key === 'm') {
+      this._openQuestBoard('available');
+      return;
+    }
+
+    if (key === 'r' && this.gameState.reputation) {
+      this.repUI = true;
+      return;
+    }
+
+    if (key === 'f' && this.gameState.fleet) {
+      this.fleetUI = createFleetUIState(true, this.portName);
       return;
     }
 
@@ -402,7 +491,7 @@ class PortMode {
     // Line 1: port name + gold + controls
     const eco = this.gameState.economy;
     const goldStr = eco ? `  ${eco.gold} rds` : '';
-    const line1 = ` ${this.portName}${goldStr}  |  Arrows: Walk  Enter: Interact  Q: Return to ship`;
+    const line1 = ` ${this.portName}${goldStr}  |  Arrows: Walk  Enter: Interact  T: Talk  M: Missions  R: Rep  F: Fleet  Q: Ship`;
     this._writeHudText(screen, baseY + 1, 0, line1, hudAttr);
 
     // Line 2: message
@@ -460,7 +549,7 @@ class PortMode {
       return;
     }
     if (tile === T.HARBOR_MASTER) {
-      this.message = 'Press ENTER to view your reputation.';
+      this.message = 'Press ENTER for mission board. Press R for faction standings.';
       this.messageTimer = 3.0;
       return;
     }
@@ -470,6 +559,14 @@ class PortMode {
   }
 
   _interact(tile) {
+    // If standing on an NPC tile, prioritize dialogue.
+    const npcHere = this._findNPCAt(this.playerX, this.playerY);
+    if (npcHere) {
+      this.message = npcHere.greeting;
+      this.messageTimer = 4.0;
+      return;
+    }
+
     // On ship tile — depart
     if (tile === T.SHIP_TILE) {
       this._returnToShip();
@@ -478,36 +575,46 @@ class PortMode {
 
     // Inside tavern — open crew/recruitment UI, chance of bar fight
     if (tile === T.TAVERN) {
-      if (Math.random() < 0.25) {
+      const quarter = this.gameState.quests ? getQuarter(this.gameState.quests.clockAccum) : 1;
+      const barFightChance = quarter === 3 ? 0.40 : 0.25;
+      if (Math.random() < barFightChance) {
         // Bar fight!
         this.gameState.melee = createMeleeState(this.gameState, 'barfight');
         this.stateMachine.transition('MELEE', this.gameState);
         return;
       }
-      this.crewUI = createCrewUIState(this.portName, this.gameState);
+      const recruitCount = quarter === 3 ? 6 : undefined;
+      this.crewUI = createCrewUIState(this.portName, this.gameState, recruitCount);
       return;
     }
 
-    // Inside market — open market shop
+    // Inside market — open market shop (closed at night)
     if (tile === T.MARKET) {
+      const quarter = this.gameState.quests ? getQuarter(this.gameState.quests.clockAccum) : 1;
+      if (quarter === 3) {
+        this.message = 'The market is closed at night.';
+        this.messageTimer = 3.0;
+        return;
+      }
       this.shop = createShopState('market', this.portName, this.gameState);
       return;
     }
 
-    // Inside shipwright — open shipwright shop
+    // Inside shipwright — open shipwright shop (closed at night)
     if (tile === T.SHIPWRIGHT) {
+      const quarter = this.gameState.quests ? getQuarter(this.gameState.quests.clockAccum) : 1;
+      if (quarter === 3) {
+        this.message = 'The shipwright is closed at night.';
+        this.messageTimer = 3.0;
+        return;
+      }
       this.shop = createShopState('shipwright', this.portName, this.gameState);
       return;
     }
 
     // Inside harbor master — open reputation display
     if (tile === T.HARBOR_MASTER) {
-      if (this.gameState.reputation) {
-        this.repUI = true;
-      } else {
-        this.message = 'Charts and ledgers cover every surface.';
-        this.messageTimer = 4.0;
-      }
+      this._openQuestBoard('available');
       return;
     }
 
@@ -524,14 +631,26 @@ class PortMode {
     if (tile === T.DOOR) {
       const bld = this._findBuildingAtDoor(this.playerX, this.playerY);
       if (bld) {
+        const doorQuarter = this.gameState.quests ? getQuarter(this.gameState.quests.clockAccum) : 1;
         if (bld.floorType === T.TAVERN) {
-          this.crewUI = createCrewUIState(this.portName, this.gameState);
+          const recruitCount = doorQuarter === 3 ? 6 : undefined;
+          this.crewUI = createCrewUIState(this.portName, this.gameState, recruitCount);
         } else if (bld.floorType === T.MARKET) {
+          if (doorQuarter === 3) {
+            this.message = 'The market is closed at night.';
+            this.messageTimer = 3.0;
+            return;
+          }
           this.shop = createShopState('market', this.portName, this.gameState);
         } else if (bld.floorType === T.SHIPWRIGHT) {
+          if (doorQuarter === 3) {
+            this.message = 'The shipwright is closed at night.';
+            this.messageTimer = 3.0;
+            return;
+          }
           this.shop = createShopState('shipwright', this.portName, this.gameState);
-        } else if (bld.floorType === T.HARBOR_MASTER && this.gameState.reputation) {
-          this.repUI = true;
+        } else if (bld.floorType === T.HARBOR_MASTER) {
+          this._openQuestBoard('available');
         } else {
           this.message = BUILDING_MESSAGES[bld.floorType] || `You enter the ${bld.name}.`;
           this.messageTimer = 4.0;
@@ -663,6 +782,229 @@ class PortMode {
     this._writeHudText(screen, py + panelH - 2, px + Math.floor((panelW - help.length) / 2), help, HELP);
   }
 
+  _openQuestBoard(tab) {
+    const quests = ensureQuestState(this.gameState);
+    getPortOffers(quests, this.portName, this._getPortNames());
+    this.questUI = {
+      tab: tab || 'available', // available | active | history
+      cursor: 0,
+    };
+  }
+
+  _getPortNames() {
+    if (!this.gameState.map || !Array.isArray(this.gameState.map.ports)) {
+      return [this.portName];
+    }
+    return this.gameState.map.ports.map(p => p.name);
+  }
+
+  _getQuestListForTab(tab) {
+    const quests = ensureQuestState(this.gameState);
+    if (tab === 'available') {
+      return getPortOffers(quests, this.portName, this._getPortNames());
+    }
+    if (tab === 'active') return quests.active;
+    return quests.history;
+  }
+
+  _handleQuestInput(key) {
+    if (!this.questUI) return;
+
+    if (key === 'q' || key === 'm') {
+      this.questUI = null;
+      return;
+    }
+
+    if (key === 'r' && this.gameState.reputation) {
+      this.questUI = null;
+      this.repUI = true;
+      return;
+    }
+
+    const tabs = ['available', 'active', 'history'];
+    if (key === 'left') {
+      const idx = tabs.indexOf(this.questUI.tab);
+      this.questUI.tab = tabs[(idx + tabs.length - 1) % tabs.length];
+      this.questUI.cursor = 0;
+      return;
+    }
+    if (key === 'right') {
+      const idx = tabs.indexOf(this.questUI.tab);
+      this.questUI.tab = tabs[(idx + 1) % tabs.length];
+      this.questUI.cursor = 0;
+      return;
+    }
+
+    const list = this._getQuestListForTab(this.questUI.tab);
+    if (key === 'up') {
+      this.questUI.cursor = Math.max(0, this.questUI.cursor - 1);
+      return;
+    }
+    if (key === 'down') {
+      this.questUI.cursor = Math.min(Math.max(0, list.length - 1), this.questUI.cursor + 1);
+      return;
+    }
+
+    if ((key === 'enter' || key === 'space') && this.questUI.tab === 'available') {
+      const selected = list[this.questUI.cursor];
+      if (selected) {
+        const result = acceptPortOffer(ensureQuestState(this.gameState), this.portName, selected.id);
+        if (result.ok) {
+          this.message = `Accepted contract: ${selected.title}`;
+        } else {
+          this.message = result.reason || 'Could not accept that contract.';
+        }
+        this.messageTimer = 4.0;
+      }
+      return;
+    }
+
+    if (key === 'x' && this.questUI.tab === 'active') {
+      const selected = list[this.questUI.cursor];
+      if (selected && abandonActiveQuest(ensureQuestState(this.gameState), selected.id)) {
+        this.message = `Abandoned contract: ${selected.title}`;
+        this.messageTimer = 3.0;
+        this.questUI.cursor = Math.max(0, this.questUI.cursor - 1);
+      }
+    }
+  }
+
+  _renderQuestBoard(screen) {
+    if (!this.questUI) return;
+
+    const quests = ensureQuestState(this.gameState);
+    const list = this._getQuestListForTab(this.questUI.tab);
+    if (this.questUI.cursor >= list.length) {
+      this.questUI.cursor = Math.max(0, list.length - 1);
+    }
+
+    const sw = screen.width;
+    const sh = screen.height;
+    const panelW = Math.min(74, sw - 4);
+    const panelH = Math.min(20, sh - 4);
+    const px = Math.floor((sw - panelW) / 2);
+    const py = Math.floor((sh - panelH) / 2);
+
+    const BG = sattr(233, 233);
+    const BORDER = sattr(94, 233);
+    const TITLE = sattr(178, 233);
+    const HEADER = sattr(250, 233);
+    const HELP = sattr(240, 233);
+    const SELECTED = sattr(233, 178);
+    const SUB = sattr(244, 233);
+    const SUCCESS = sattr(34, 233);
+    const FAILED = sattr(160, 233);
+
+    // Clear panel
+    for (let y = py; y < py + panelH; y++) {
+      const row = screen.lines[y];
+      if (!row) continue;
+      for (let x = px; x < px + panelW && x < row.length; x++) {
+        row[x][0] = BG;
+        row[x][1] = ' ';
+      }
+      row.dirty = true;
+    }
+
+    // Border
+    const _wc = (y, x, ch) => {
+      const row = screen.lines[y];
+      if (row && x >= 0 && x < row.length) { row[x][0] = BORDER; row[x][1] = ch; }
+    };
+    _wc(py, px, '\u250C');
+    for (let x = px + 1; x < px + panelW - 1; x++) _wc(py, x, '\u2500');
+    _wc(py, px + panelW - 1, '\u2510');
+    _wc(py + panelH - 1, px, '\u2514');
+    for (let x = px + 1; x < px + panelW - 1; x++) _wc(py + panelH - 1, x, '\u2500');
+    _wc(py + panelH - 1, px + panelW - 1, '\u2518');
+    for (let y = py + 1; y < py + panelH - 1; y++) {
+      _wc(y, px, '\u2502');
+      _wc(y, px + panelW - 1, '\u2502');
+    }
+
+    const title = ` Mission Board - Day ${quests.day || 1} `;
+    this._writeHudText(screen, py, px + Math.floor((panelW - title.length) / 2), title, TITLE);
+
+    const tabs = [
+      this.questUI.tab === 'available' ? '[Available]' : ' Available ',
+      this.questUI.tab === 'active' ? '[Active]' : ' Active ',
+      this.questUI.tab === 'history' ? '[History]' : ' History ',
+    ];
+    this._writeHudText(screen, py + 2, px + 3, tabs.join('   '), HEADER);
+
+    const listTop = py + 4;
+    const listBottom = py + panelH - 4;
+    const rowStep = 2;
+    const maxRows = Math.max(1, Math.floor((listBottom - listTop + 1) / rowStep));
+    const start = Math.max(0, Math.min(this.questUI.cursor - 2, Math.max(0, list.length - maxRows)));
+
+    if (!list.length) {
+      const emptyMsg = this.questUI.tab === 'available'
+        ? 'No new contracts today. Return tomorrow.'
+        : this.questUI.tab === 'active'
+        ? 'No active contracts.'
+        : 'No completed contracts yet.';
+      this._writeHudText(screen, listTop + 1, px + 3, emptyMsg, SUB);
+    } else {
+      for (let i = 0; i < maxRows; i++) {
+        const quest = list[start + i];
+        if (!quest) break;
+
+        const rowY = listTop + i * rowStep;
+        const isSelected = (start + i) === this.questUI.cursor;
+        const mainAttr = isSelected ? SELECTED : HEADER;
+
+        if (isSelected) {
+          const row = screen.lines[rowY];
+          const row2 = screen.lines[rowY + 1];
+          for (let x = px + 2; x < px + panelW - 2; x++) {
+            if (row && x < row.length) {
+              row[x][0] = SELECTED;
+              row[x][1] = ' ';
+            }
+            if (row2 && x < row2.length) {
+              row2[x][0] = SELECTED;
+              row2[x][1] = ' ';
+            }
+          }
+        }
+
+        let heading = `${quest.id}  ${quest.title}`;
+        heading = heading.slice(0, panelW - 8);
+        this._writeHudText(screen, rowY, px + 3, heading, mainAttr);
+
+        let detail = '';
+        let detailAttr = SUB;
+        if (this.questUI.tab === 'available') {
+          detail = `Due day ${quest.deadlineDay}  |  Reward ${quest.rewardGold} rds  |  ${quest.rumor}`;
+        } else if (this.questUI.tab === 'active') {
+          if (quest.type === 'delivery') {
+            const have = this.gameState.economy && this.gameState.economy.cargo
+              ? (this.gameState.economy.cargo[quest.goodId] || 0)
+              : 0;
+            detail = `Delivery ${have}/${quest.qty} ${quest.goodName} to ${quest.targetPort}  |  Due day ${quest.deadlineDay}`;
+          } else {
+            detail = `Hunt ${quest.progress || 0}/${quest.required} (${quest.targetFaction})  |  Due day ${quest.deadlineDay}`;
+          }
+        } else {
+          detailAttr = quest.status === 'success' ? SUCCESS : FAILED;
+          const outcome = quest.status === 'success' ? 'SUCCESS' : 'FAILED';
+          detail = `${outcome} on day ${quest.resolvedDay || '-'}  |  Reward ${quest.rewardGold || 0} rds`;
+        }
+
+        detail = detail.slice(0, panelW - 8);
+        this._writeHudText(screen, rowY + 1, px + 3, detail, isSelected ? SELECTED : detailAttr);
+      }
+    }
+
+    const help = this.questUI.tab === 'available'
+      ? ' Left/Right: Tabs  Up/Down: Select  Enter: Accept  R: Reputation  Q/M: Close '
+      : this.questUI.tab === 'active'
+      ? ' Left/Right: Tabs  Up/Down: Select  X: Abandon  R: Reputation  Q/M: Close '
+      : ' Left/Right: Tabs  Up/Down: Select  R: Reputation  Q/M: Close ';
+    this._writeHudText(screen, py + panelH - 2, px + 2, help.slice(0, panelW - 4), HELP);
+  }
+
   _findAdjacentNPC() {
     const dirs = [[0,-1],[0,1],[-1,0],[1,0],[0,0]];
     for (const [dx, dy] of dirs) {
@@ -671,6 +1013,13 @@ class PortMode {
       for (const npc of this.npcs) {
         if (npc.x === nx && npc.y === ny) return npc;
       }
+    }
+    return null;
+  }
+
+  _findNPCAt(x, y) {
+    for (const npc of this.npcs) {
+      if (npc.x === x && npc.y === y) return npc;
     }
     return null;
   }

@@ -45,7 +45,7 @@ const UPGRADES = [
  * Get the buy/sell price for a good at a given port.
  * Buy price has a small markup, sell price has a small markdown.
  */
-function getPrice(goodId, portName) {
+function getPrice(goodId, portName, eventMult) {
   const good = GOODS.find(g => g.id === goodId);
   if (!good) return { buy: 0, sell: 0 };
 
@@ -54,7 +54,7 @@ function getPrice(goodId, portName) {
 
   // Add some randomness (±10%)
   const jitter = 0.9 + Math.random() * 0.2;
-  const price = Math.round(good.base * mod * jitter);
+  const price = Math.round(good.base * mod * jitter * (eventMult || 1.0));
 
   return {
     buy: Math.max(1, price + Math.ceil(price * 0.1)),   // 10% markup
@@ -65,10 +65,10 @@ function getPrice(goodId, portName) {
 /**
  * Generate a full price table for a port (called once when entering market).
  */
-function generatePriceTable(portName) {
+function generatePriceTable(portName, eventMult) {
   const table = {};
   for (const good of GOODS) {
-    table[good.id] = getPrice(good.id, portName);
+    table[good.id] = getPrice(good.id, portName, eventMult);
   }
   return table;
 }

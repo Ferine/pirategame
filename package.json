@@ -4,7 +4,8 @@
   "description": "A terminal pirate game set in the Kattegat strait",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test test/**/*.test.js"
   },
   "keywords": [
     "terminal",

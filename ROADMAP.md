@@ -258,6 +258,42 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 
 **Files:** `fleet/ship-types.js`, `fleet/fleet.js`, `fleet/fleet-ui.js`
 
+### Automated Test Suite — COMPLETE
+
+- [x] Node.js built-in `node:test` + `node:assert/strict` — zero new dependencies
+- [x] `npm test` runs all 178 tests via `node --test test/**/*.test.js`
+- [x] Seeded deterministic random helper for reproducible test runs
+- [x] Test game-state factory (full gameState without map/screen)
+- [x] **Scenario tests (12 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events
+- [x] **Integration tests (5 files):** trade voyage profit, combat→boarding→ship capture, crew mutiny cascade, quest delivery turn-in, faction cascade port lockout
+
+**Files:**
+```
+test/
+  helpers/
+    game-state.js          — Fresh gameState builder (no screen/map)
+    deterministic.js       — Seeded LCG Math.random replacement
+  scenarios/
+    factions.test.js       — Rep tiers, action cascades, port access, price modifiers
+    economy.test.js        — Price math, cargo counting, port price variation
+    crew.test.js           — Morale decay, desertion, mutiny, pay, role bonuses
+    combat.test.js         — Damage calc, ammo types, hit/miss, multi-round resolution
+    melee.test.js          — Move resolution, parry/riposte, stamina, AI styles
+    fleet.test.js          — Add/remove ships, flagship switch, sync, effective stats
+    quests.test.js         — Day clock, offers, accept, delivery, hunt progress, expiry
+    weather.test.js        — State transitions, timer, bias, effects lookup
+    save-load.test.js      — Serialize/deserialize round-trip, corrupt JSON, old saves
+    trajectory.test.js     — Cannonball physics: launch, flight, hit check
+    day-night.test.js      — Quarter/season/moon, sight range, weather bias
+    events.test.js         — Event spawn, expiry, trade boom, plague port closure
+  integration/
+    trade-voyage.test.js   — Buy cheap → sell dear → net profit
+    combat-capture.test.js — Cannon combat → boarding → ship capture → fleet grows
+    crew-mutiny.test.js    — Days at sea → morale decay → desertions → mutiny
+    quest-delivery.test.js — Accept quest → stock cargo → arrive → reward
+    faction-cascade.test.js— Attack repeatedly → lose port access → pirate rep soars
+```
+
 ### Phase 18: Convoy & Escort Missions — PLANNED
 
 - [ ] Convoy travel mode: flagship + 1-2 fleet escorts moving as formation on overworld

@@ -851,6 +851,15 @@ class PortMode {
         const result = acceptPortOffer(ensureQuestState(this.gameState), this.portName, selected.id);
         if (result.ok) {
           this.message = `Accepted contract: ${selected.title}`;
+          // Activate convoy or blockade on escort/blockade quest accept
+          if (selected.type === 'escort') {
+            const { createConvoyState } = require('../convoy/convoy');
+            this.gameState.convoy = createConvoyState(selected, this.portName);
+          }
+          if (selected.type === 'blockade') {
+            const { createBlockadeState } = require('../convoy/convoy');
+            this.gameState.blockade = createBlockadeState(selected, this.portName);
+          }
         } else {
           this.message = result.reason || 'Could not accept that contract.';
         }
@@ -983,6 +992,15 @@ class PortMode {
               ? (this.gameState.economy.cargo[quest.goodId] || 0)
               : 0;
             detail = `Delivery ${have}/${quest.qty} ${quest.goodName} to ${quest.targetPort}  |  Due day ${quest.deadlineDay}`;
+          } else if (quest.type === 'escort') {
+            const convoy = this.gameState.convoy;
+            const alive = convoy ? convoy.escorts.filter(e => e.alive).length : '?';
+            const total = convoy ? convoy.escorts.length : '?';
+            detail = `Escort ${alive}/${total} to ${quest.targetPort}  |  Due day ${quest.deadlineDay}`;
+          } else if (quest.type === 'blockade') {
+            const blockade = this.gameState.blockade;
+            const status = blockade && blockade.detected ? 'DETECTED' : 'Undetected';
+            detail = `Smuggle to ${quest.targetPort} (${status})  |  Due day ${quest.deadlineDay}`;
           } else {
             detail = `Hunt ${quest.progress || 0}/${quest.required} (${quest.targetFaction})  |  Due day ${quest.deadlineDay}`;
           }

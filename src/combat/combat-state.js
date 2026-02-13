@@ -28,7 +28,11 @@ function createCombatState(gameState) {
   const crewCount = gameState.crew ? gameState.crew.members.length : 30;
   const maxCrew = gameState.crew ? gameState.crew.maxCrew : 30;
   const cannonBonus = gameState.economy ? (gameState.economy.cannonBonus || 0) : 0;
-  const cannonCount = 2 + cannonBonus;
+  // Escort fire bonus: +1 cannon per surviving escort
+  const escortBonus = gameState.convoy && gameState.convoy.active
+    ? gameState.convoy.escorts.filter(e => e.alive).length
+    : 0;
+  const cannonCount = 2 + cannonBonus + escortBonus;
 
   // Derive masts from fleet flagship if available
   let playerMasts = 2;

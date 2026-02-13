@@ -18,6 +18,10 @@ const { getQuarter, getSeason, getEffectiveSightRange, getWeatherBias,
         getNightDimLevel, dimColor, isInLanternGlow } = require('../world/day-night');
 const { onDayAdvance, updateEventNotifications, isPortClosed } = require('../world/events');
 const { syncToGameState } = require('../fleet/fleet');
+const { updateConvoy, toggleFormation, checkConvoyArrival, checkConvoyFailed,
+        shouldSpawnAmbush, spawnAmbushNPC, damageEscort,
+        getFormationBonus, updateBlockade } = require('../convoy/convoy');
+const { renderConvoyOverlay } = require('../convoy/convoy-hud');
 
 // Movement direction vectors: N, NE, E, SE, S, SW, W, NW
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -142,6 +146,42 @@ class OverworldMode {
       updateNPCShips(this.gameState.npcShips, this.gameState, dt);
     }
 
+    // Update convoy escorts
+    if (this.gameState.convoy && this.gameState.convoy.active) {
+      const convoy = this.gameState.convoy;
+
+      updateConvoy(convoy, this.gameState.ship, this.gameState.wind, this.gameState.map, dt);
+
+      // Position escorts near player if they're at (0,0) — just activated
+      for (const escort of convoy.escorts) {
+        if (escort.alive && escort.x === 0 && escort.y === 0) {
+          escort.x = ship.x - DIR_DX[ship.direction] * 2;
+          escort.y = ship.y - DIR_DY[ship.direction] * 2;
+        }
+      }
+
+      // Check ambush spawning
+      if (shouldSpawnAmbush(convoy, dt)) {
+        const ambush = spawnAmbushNPC(convoy, ship.x, ship.y, this.gameState.map);
+        if (ambush) this.gameState.npcShips.push(ambush);
+      }
+
+      // Check convoy failure (all escorts dead or timer expired)
+      if (checkConvoyFailed(convoy)) {
+        convoy.active = false;
+        this._pushNotice('The convoy has been lost!', 5.0);
+      }
+    }
+
+    // Update blockade runner
+    if (this.gameState.blockade && this.gameState.blockade.active) {
+      updateBlockade(this.gameState.blockade, this.gameState.ship, dt);
+      if (this.gameState.blockade.detected) {
+        this._pushNotice('You have been spotted by English patrols!', 4.0);
+        this.gameState.blockade.active = false;
+      }
+    }
+
     // Day timer — morale tick + world events
     if (this.gameState.quests) {
       const daysAdvanced = advanceQuestTime(this.gameState.quests, dt);
@@ -194,12 +234,29 @@ class OverworldMode {
     if (this.encounterCooldown > 0) {
       this.encounterCooldown -= dt;
     } else if (this.gameState.npcShips) {
-      const npc = checkEncounter(this.gameState.npcShips, ship.x, ship.y);
-      if (npc) {
-        this.gameState.encounter = npc;
-        this.encounterCooldown = 3.0;
-        this.stateMachine.transition('ENCOUNTER', this.gameState);
-        return;
+      const result = checkEncounter(this.gameState.npcShips, ship.x, ship.y, this.gameState.convoy);
+      if (result) {
+        if (result.target === 'escort' && result.escortId) {
+          // Ambush NPC reached an escort — deal damage and remove NPC
+          damageEscort(this.gameState.convoy, result.escortId, 20 + Math.floor(Math.random() * 15));
+          const escort = this.gameState.convoy.escorts.find(e => e.id === result.escortId);
+          if (escort && !escort.alive) {
+            this._pushNotice(`The ${escort.name} has been sunk!`, 4.0);
+          } else if (escort) {
+            this._pushNotice(`The ${escort.name} is under attack! Hull: ${escort.hull}`, 3.0);
+          }
+          // Remove the ambush NPC
+          const npcIdx = this.gameState.npcShips.indexOf(result.npc);
+          if (npcIdx >= 0) this.gameState.npcShips.splice(npcIdx, 1);
+          this.encounterCooldown = 2.0;
+        } else {
+          // Normal player encounter
+          const npc = result.npc || result;
+          this.gameState.encounter = npc;
+          this.encounterCooldown = 3.0;
+          this.stateMachine.transition('ENCOUNTER', this.gameState);
+          return;
+        }
       }
     }
   }
@@ -231,6 +288,11 @@ class OverworldMode {
 
     // Render NPC ships
     this._renderNPCShips(screen);
+
+    // Render convoy escort ships overlay
+    if (this.gameState.convoy && this.gameState.convoy.active) {
+      renderConvoyOverlay(screen, this.gameState.convoy, this.camera, this.viewW, this.viewH);
+    }
 
     // Render player ship on top
     this._renderShip(screen);
@@ -281,6 +343,16 @@ class OverworldMode {
     // Fleet roster notice
     if (key === 'f') {
       this._pushNotice('Visit a port to manage your fleet.', 3.0);
+      return;
+    }
+
+    // Toggle convoy formation
+    if (key === 'tab') {
+      if (this.gameState.convoy && this.gameState.convoy.active) {
+        toggleFormation(this.gameState.convoy);
+        const f = this.gameState.convoy.formation;
+        this._pushNotice(`Formation: ${f.toUpperCase()}`, 2.0);
+      }
       return;
     }
 
@@ -359,6 +431,13 @@ class OverworldMode {
         if (tile === TILE.PORT) {
           const port = this._findPort(nx, ny);
           if (port) {
+            // Check convoy arrival
+            if (this.gameState.convoy && this.gameState.convoy.active) {
+              if (checkConvoyArrival(this.gameState.convoy, port.name)) {
+                this._pushNotice(`Convoy delivered safely to ${port.name}!`, 5.0);
+                // Quest resolution happens in port mode via resolvePortArrivalQuests
+              }
+            }
             // Check plague closure
             if (this.gameState.events && isPortClosed(this.gameState.events, port.name)) {
               this._pushNotice(`${port.name} is under plague quarantine!`, 4.0);

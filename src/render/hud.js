@@ -63,7 +63,17 @@ function updateHUD(box, gameState) {
     timeStr = `    Day ${q.day || 1} ${quarter} ${moon.icon} ${season.name}`;
   }
 
-  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Speed: ${speed} kn${weatherStr}${timeStr}`;
+  // Convoy info
+  let convoyStr = '';
+  if (gameState.convoy && gameState.convoy.active) {
+    const alive = gameState.convoy.escorts.filter(e => e.alive).length;
+    const total = gameState.convoy.escorts.length;
+    const timer = Math.ceil(gameState.convoy.timer);
+    const formation = gameState.convoy.formation.toUpperCase();
+    convoyStr = `    CONVOY: ${alive}/${total} ${formation} ${timer}s`;
+  }
+
+  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Speed: ${speed} kn${weatherStr}${timeStr}${convoyStr}`;
   const defaultLine2 = `  Pos: (${ship.x}, ${ship.y})    Hull: ${ship.hull}/${ship.maxHull}    ${ship.name}`;
   const notice = (gameState.hudMessage || '').replace(/[{}]/g, '').trim();
   const line2 = notice ? `  Notice: ${notice}` : defaultLine2;

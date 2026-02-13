@@ -261,10 +261,10 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 ### Automated Test Suite — COMPLETE
 
 - [x] Node.js built-in `node:test` + `node:assert/strict` — zero new dependencies
-- [x] `npm test` runs all 178 tests via `node --test test/**/*.test.js`
+- [x] `npm test` runs all 217 tests via `node --test test/**/*.test.js`
 - [x] Seeded deterministic random helper for reproducible test runs
 - [x] Test game-state factory (full gameState without map/screen)
-- [x] **Scenario tests (12 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events
+- [x] **Scenario tests (13 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy
 - [x] **Integration tests (5 files):** trade voyage profit, combat→boarding→ship capture, crew mutiny cascade, quest delivery turn-in, faction cascade port lockout
 
 **Files:**
@@ -286,6 +286,7 @@ test/
     trajectory.test.js     — Cannonball physics: launch, flight, hit check
     day-night.test.js      — Quarter/season/moon, sight range, weather bias
     events.test.js         — Event spawn, expiry, trade boom, plague port closure
+    convoy.test.js         — Convoy state, formation, ambush, blockade runner
   integration/
     trade-voyage.test.js   — Buy cheap → sell dear → net profit
     combat-capture.test.js — Cannon combat → boarding → ship capture → fleet grows
@@ -294,20 +295,20 @@ test/
     faction-cascade.test.js— Attack repeatedly → lose port access → pirate rep soars
 ```
 
-### Phase 18: Convoy & Escort Missions — PLANNED
+### Phase 18: Convoy & Escort Missions — COMPLETE
 
-- [ ] Convoy travel mode: flagship + 1-2 fleet escorts moving as formation on overworld
-- [ ] Escort contract type on mission board: protect merchant convoy between ports, 60-90s time limit
-- [ ] Convoy NPC ships follow player at 0.8x speed, break formation if player moves too fast
-- [ ] Ambush encounters: pirate/English ships target convoy NPCs, player must engage or lose cargo
-- [ ] Convoy damage: escorted ships have hull HP, destroyed ships fail the contract
-- [ ] Successful escort: gold reward (100-300) + Merchant Guild reputation boost
-- [ ] Blockade runner missions: smuggle cargo past English naval line, stealth-adjacent (avoid detection radius)
-- [ ] Convoy HUD overlay: minimap dots showing escort ship positions and health
-- [ ] Formation controls: tight (slow, defensive) vs spread (fast, vulnerable) via Tab key
-- [ ] Escort ships provide supporting fire in cannon combat (bonus damage per surviving escort)
+- [x] Convoy travel mode: flagship + 1-2 fleet escorts moving as formation on overworld
+- [x] Escort contract type on mission board: protect merchant convoy between ports, 60-90s time limit
+- [x] Convoy NPC ships follow player at 0.8x speed, break formation if player moves too fast
+- [x] Ambush encounters: pirate/English ships target convoy NPCs, player must engage or lose cargo
+- [x] Convoy damage: escorted ships have hull HP, destroyed ships fail the contract
+- [x] Successful escort: gold reward (100-300) + Merchant Guild reputation boost
+- [x] Blockade runner missions: smuggle cargo past English naval line, stealth-adjacent (avoid detection radius)
+- [x] Convoy HUD overlay: minimap dots showing escort ship positions and health
+- [x] Formation controls: tight (slow, defensive) vs spread (fast, vulnerable) via Tab key
+- [x] Escort ships provide supporting fire in cannon combat (bonus damage per surviving escort)
 
-**Files:** `modes/convoy.js`, `world/convoy-ai.js`
+**Files:** `convoy/convoy.js`, `convoy/convoy-hud.js`
 
 ### Phase 19: Story Campaign — PLANNED
 
@@ -409,6 +410,9 @@ src/
     ship-types.js       — Ship type definitions (sloop, brigantine, frigate, galleon)
     fleet.js            — Fleet data model, flagship sync, add/remove/switch ships
     fleet-ui.js         — Fleet roster overlay UI (view, switch, rename, sell)
+  convoy/
+    convoy.js           — Convoy & blockade data model, formation, ambush spawning
+    convoy-hud.js       — Convoy HUD overlay (escort dots, formation, timer)
 ```
 
 ---

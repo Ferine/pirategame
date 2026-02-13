@@ -157,6 +157,26 @@ function updateNPCShips(ships, gameState, dt) {
 }
 
 function _updateNPCAI(npc, player, wind, dt, reputation) {
+  // Ambush targeting: head toward assigned escort ship
+  if (npc.ambushTarget) {
+    const escort = npc.ambushTarget;
+    if (escort.alive) {
+      npc.aiTarget = { x: escort.x, y: escort.y };
+      npc.aiTimer = 2;
+      // Set direction toward target
+      if (npc.aiTarget) {
+        const dx = npc.aiTarget.x - npc.x;
+        const dy = npc.aiTarget.y - npc.y;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+          npc.direction = _vecToDir(dx, dy);
+        }
+      }
+      return;
+    } else {
+      npc.ambushTarget = null; // target destroyed, revert to normal AI
+    }
+  }
+
   npc.aiTimer -= dt;
 
   if (npc.aiTimer <= 0) {
@@ -266,7 +286,7 @@ function _moveNPC(npc, map, wind, dt) {
 /**
  * Check if any NPC ship is adjacent to player. Returns the NPC or null.
  */
-function checkEncounter(ships, playerX, playerY) {
+function checkEncounter(ships, playerX, playerY, convoy) {
   for (const npc of ships) {
     const dx = Math.abs(npc.x - playerX);
     const dy = Math.abs(npc.y - playerY);
@@ -274,6 +294,23 @@ function checkEncounter(ships, playerX, playerY) {
       return npc;
     }
   }
+
+  // Check NPC adjacency to convoy escort ships
+  if (convoy && convoy.active) {
+    for (const npc of ships) {
+      if (!npc.ambushTarget) continue;
+      for (const escort of convoy.escorts) {
+        if (!escort.alive) continue;
+        const ex = Math.abs(npc.x - escort.x);
+        const ey = Math.abs(npc.y - escort.y);
+        if (ex <= 1 && ey <= 1 && (ex + ey) > 0) {
+          // Ambush NPC reached an escort — deal damage directly
+          return { npc, target: 'escort', escortId: escort.id };
+        }
+      }
+    }
+  }
+
   return null;
 }
 

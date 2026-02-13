@@ -39,6 +39,8 @@ function createTestGameState(overrides = {}) {
     fleet: createFleetState('Drakar'),
     questNotices: [],
     treasureMaps: [],
+    convoy: null,
+    blockade: null,
     melee: null,
     meleeResult: null,
     boardingNpcId: null,

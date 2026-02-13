@@ -73,6 +73,11 @@ class InputHandler {
       this.stateMachine.handleInput('q');
     });
 
+    // Tab for convoy formation toggle
+    this.screen.key(['tab'], () => {
+      this.stateMachine.handleInput('tab');
+    });
+
     // Numeric keys (used by some overlays)
     this.screen.key(['1', '2'], (ch, key) => {
       this.stateMachine.handleInput(key.name);

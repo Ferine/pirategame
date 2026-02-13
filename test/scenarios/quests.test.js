@@ -62,12 +62,12 @@ describe('quests', () => {
       assert.equal(offers[3].type, 'hunt');
     });
 
-    it('first 3 offers are delivery quests', () => {
+    it('first 2 offers are delivery, slot 2 is escort/blockade', () => {
       const q = createQuestState();
       const offers = getPortOffers(q, 'Skagen', PORT_NAMES);
-      for (let i = 0; i < 3; i++) {
-        assert.equal(offers[i].type, 'delivery');
-      }
+      assert.equal(offers[0].type, 'delivery');
+      assert.equal(offers[1].type, 'delivery');
+      assert.ok(['escort', 'blockade'].includes(offers[2].type));
     });
 
     it('caches offers for same port+day', () => {

@@ -161,6 +161,53 @@ function resolvePortArrivalQuests(gameState, portName) {
       let msg = `Bounty paid: ${quest.title}. +${quest.rewardGold} rds`;
       if (repChanges.length) msg += ` (${repChanges.join(', ')})`;
       events.push(msg);
+      continue;
+    }
+
+    if (quest.type === 'escort') {
+      if (quest.targetPort !== portName) continue;
+      // Check if convoy is active and successful
+      if (gameState.convoy && gameState.convoy.active && gameState.convoy.questId === quest.id) {
+        const alive = gameState.convoy.escorts.filter(e => e.alive).length;
+        if (alive > 0) {
+          const repChanges = _applyQuestRewards(gameState, quest);
+          _archiveQuest(quests, quest, 'success');
+          quests.active.splice(i, 1);
+          gameState.convoy = null;
+
+          let msg = `Convoy escorted safely! +${quest.rewardGold} rds`;
+          if (repChanges.length) msg += ` (${repChanges.join(', ')})`;
+          events.push(msg);
+        } else {
+          _archiveQuest(quests, quest, 'failed');
+          quests.active.splice(i, 1);
+          gameState.convoy = null;
+          events.push(`Convoy escort failed: all merchants destroyed.`);
+        }
+      }
+      continue;
+    }
+
+    if (quest.type === 'blockade') {
+      if (quest.targetPort !== portName) continue;
+      if (gameState.blockade && gameState.blockade.active && gameState.blockade.questId === quest.id) {
+        if (!gameState.blockade.detected) {
+          const repChanges = _applyQuestRewards(gameState, quest);
+          _archiveQuest(quests, quest, 'success');
+          quests.active.splice(i, 1);
+          gameState.blockade = null;
+
+          let msg = `Blockade run successful! +${quest.rewardGold} rds`;
+          if (repChanges.length) msg += ` (${repChanges.join(', ')})`;
+          events.push(msg);
+        } else {
+          _archiveQuest(quests, quest, 'failed');
+          quests.active.splice(i, 1);
+          gameState.blockade = null;
+          events.push(`Blockade run failed: you were detected.`);
+        }
+      }
+      continue;
     }
   }
 
@@ -203,8 +250,17 @@ function _generateOffersForPort(quests, portName, portNames) {
   for (let i = 0; i < OFFERS_PER_PORT; i++) {
     let quest;
     if (i === OFFERS_PER_PORT - 1) {
+      // Last slot: hunt quest
       quest = _generateHuntQuest(quests, portName, rand);
+    } else if (i === 2) {
+      // Slot 2: escort or blockade quest
+      if (rand() < 0.3) {
+        quest = _generateBlockadeQuest(quests, portName, allPorts, rand);
+      } else {
+        quest = _generateEscortQuest(quests, portName, allPorts, rand);
+      }
     } else {
+      // Slots 0-1: delivery quests
       quest = _generateDeliveryQuest(quests, portName, allPorts, rand);
     }
     offers.push(quest);
@@ -272,6 +328,48 @@ function _generateHuntQuest(quests, originPort, rand) {
     deadlineDay,
     rewardGold,
     rewardRep,
+  };
+}
+
+function _generateEscortQuest(quests, originPort, allPorts, rand) {
+  const destinations = allPorts.filter(p => p !== originPort);
+  const targetPort = destinations[Math.floor(rand() * destinations.length)] || originPort;
+  const escortCount = 1 + (rand() < 0.3 ? 1 : 0);
+  const timeLimit = 60 + Math.floor(rand() * 30);
+  const deadlineDay = (quests.day || 1) + 3;
+  const rewardGold = 100 + Math.floor(rand() * 200);
+
+  return {
+    id: `Q${quests.nextId++}`,
+    type: 'escort',
+    title: `Escort convoy to ${targetPort}`,
+    rumor: `Rumor: merchants seek armed escort to ${targetPort}.`,
+    originPort,
+    targetPort,
+    escortCount,
+    timeLimit,
+    deadlineDay,
+    rewardGold,
+    rewardRep: { merchant: 8, crown: 3 },
+  };
+}
+
+function _generateBlockadeQuest(quests, originPort, allPorts, rand) {
+  const destinations = allPorts.filter(p => p !== originPort);
+  const targetPort = destinations[Math.floor(rand() * destinations.length)] || originPort;
+  const deadlineDay = (quests.day || 1) + 3;
+  const rewardGold = 150 + Math.floor(rand() * 200);
+
+  return {
+    id: `Q${quests.nextId++}`,
+    type: 'blockade',
+    title: `Smuggle cargo to ${targetPort}`,
+    rumor: `Rumor: smugglers need a runner past the English patrols to ${targetPort}.`,
+    originPort,
+    targetPort,
+    deadlineDay,
+    rewardGold,
+    rewardRep: { smuggler: 10, merchant: 3, crown: -2 },
   };
 }
 

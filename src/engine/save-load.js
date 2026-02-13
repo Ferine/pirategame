@@ -38,6 +38,8 @@ function serializeGameState(gameState) {
     events: gameState.events ? JSON.parse(JSON.stringify(gameState.events)) : null,
     treasureMaps: gameState.treasureMaps ? gameState.treasureMaps.map(t => ({ ...t })) : [],
     fleet: gameState.fleet ? JSON.parse(JSON.stringify(gameState.fleet)) : null,
+    convoy: gameState.convoy ? JSON.parse(JSON.stringify(gameState.convoy)) : null,
+    blockade: gameState.blockade ? JSON.parse(JSON.stringify(gameState.blockade)) : null,
     crtEnabled: gameState.crtEnabled || false,
   };
 
@@ -118,6 +120,10 @@ function deserializeGameState(json, gameState) {
     gameState.fleet = createFleetState(gameState.ship.name || 'Drakar');
     fleetSyncFrom(gameState.fleet, gameState);
   }
+
+  // Restore convoy/blockade
+  gameState.convoy = data.convoy || null;
+  gameState.blockade = data.blockade || null;
 
   // Restore CRT toggle
   gameState.crtEnabled = data.crtEnabled || false;

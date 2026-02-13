@@ -75,6 +75,9 @@ src/
   crew/
     crew.js             — Crew data model, morale, recruitment, roles, events
     crew-ui.js          — Tavern overlay: roster, recruit, pay wages
+  convoy/
+    convoy.js           — Convoy & blockade data model, formation, ambush spawning
+    convoy-hud.js       — Convoy HUD overlay (escort dots, formation, timer)
 ```
 
 ## Mode Interface

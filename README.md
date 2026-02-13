@@ -3,15 +3,19 @@
 A terminal pirate game set in the Kattegat strait — spiritual successor to **Kaptajn Kaper i Kattegat** (1985). Built with [neo-blessed](https://github.com/embarklabs/neo-blessed).
 
 ```
-    ~  K A T T E G A T   K A P E R  ~
+      ~  K A T T E G A T   K A P E R  ~
 
-          ~~~\___/~~~
-     ~~~~~~~~|  |~~~~~~~~
-    ~~~~~~~~~| \| ~~~~~~~~~
-     ~~~~~~~~|  |~~~~~~~~
-          ~~~/ \ \~~~
+                      |
+                     /|\
+                    / | \
+                   /  |  \
+            .----'   |   '----.
+       _,--'  ~~~~~~~|~~~~~~~  '--,_
+      |_____|________|________|_____|
+       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+         '-._____________________.-'
 
-    A Pirate Game of the Northern Seas
+      A Pirate Game of the Northern Seas
 ```
 
 ## Features
@@ -31,8 +35,15 @@ A terminal pirate game set in the Kattegat strait — spiritual successor to **K
 - **Day/night cycle** — dawn/day/dusk/night with moon phases, port curfews, night tavern bonuses, seasonal weather bias
 - **World events** — trade booms, plague outbreaks, naval blockades, and pirate raids that shift the game world
 - **Dynamic weather** — fog, rain, storms affecting visibility, speed, hull damage, and combat sway
-- **Save/load system** — auto-save at ports, manual save slots
+- **Convoy escorts** — protect merchant convoys, run blockades, formation controls
+- **Campaign story** — 5-act narrative with 6 story NPCs, dialog trees, multiple endings
+- **Achievements** — 20 stat-based achievements tracking combat, trade, exploration milestones
+- **Captain's log** — event-driven prose journal recording your voyage (L key)
+- **New Game+** — carry over stats, unlock cosmetics and difficulty modifiers after completing the campaign
+- **Difficulty selection** — easy, normal, hard with tuned gold/damage/guard speed
+- **Save/load system** — auto-save at ports, manual save slots, difficulty persistence
 - **CRT aesthetic** — optional scanline + vignette filter
+- **Credits sequence** — auto-scrolling credits after campaign completion
 
 ## Requirements
 
@@ -61,6 +72,8 @@ npm start
 | Title      | Enter            | Select                    |
 | Sailing    | Arrow keys       | Set ship direction        |
 | Sailing    | C                | Toggle CRT filter         |
+| Sailing    | L                | Captain's log             |
+| Sailing    | J                | Campaign journal          |
 | Sailing    | F                | Fleet info (at port only) |
 | Port/Island| Arrow keys       | Walk                      |
 | Port/Island| Enter            | Interact                  |
@@ -68,6 +81,8 @@ npm start
 | Port       | F                | Open fleet roster         |
 | Port       | M                | Open mission board        |
 | Port       | R                | Open reputation board     |
+| Port       | J                | Campaign journal          |
+| Port       | L                | Captain's log             |
 | Port/Island| Q                | Return to ship            |
 | Fleet      | Up/Down          | Select ship               |
 | Fleet      | Space            | Set as flagship           |

@@ -48,6 +48,7 @@ src/
     encounter.js        — Encounter dialog (hail/flee/attack/board/infiltrate)
     melee.js            — Melee sword combat (boarding, bar fight, duel, stealth)
     stealth.js          — Stealth infiltration mode (guards, vision cones, objectives)
+    credits.js          — Auto-scroll credits sequence after campaign completion
   combat/
     combat-state.js     — Damage calculations, enemy templates, combat logic
     melee-state.js      — Melee combat state, moves, resolution, enemy AI
@@ -78,6 +79,15 @@ src/
   convoy/
     convoy.js           — Convoy & blockade data model, formation, ambush spawning
     convoy-hud.js       — Convoy HUD overlay (escort dots, formation, timer)
+  story/
+    campaign.js         — Campaign state model, 5-act progression, key items, endings
+    npcs.js             — 6 story NPC definitions, ASCII portraits, port placement
+    dialog.js           — Dialog trees (~25 nodes) for story NPCs across acts
+    journal-ui.js       — Campaign journal overlay (J key): objective, entries, items
+  meta/
+    achievements.js     — 20 achievements with stat-based thresholds and check logic
+    legacy.js           — Persistent stats, difficulty, Hall of Fame, New Game+, cosmetics
+    captains-log.js     — Event-driven prose generation, captain's log UI overlay (L key)
 ```
 
 ## Mode Interface
@@ -93,6 +103,7 @@ Every game mode implements: `enter(gameState)`, `exit()`, `update(dt)`, `render(
 - Arrow keys / WASD: Set ship direction
 - Enter: Start game / interact / confirm
 - C: Toggle CRT filter (overworld)
+- L: Captain's log (overworld/port)
 - Q: Quit from title / return from modes
 - Ctrl-C: Exit anytime
 

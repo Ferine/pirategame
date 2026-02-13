@@ -11,6 +11,8 @@ const { onVictory, onLoss } = require('../crew/crew');
 const { applyAction, getDefeatAction } = require('../world/factions');
 const { createTreasureMap } = require('../island/treasure');
 const { syncFromGameState } = require('../fleet/fleet');
+const { getDifficulty } = require('../meta/legacy');
+const { logEvent } = require('../meta/captains-log');
 
 // Sub-phases within drone cam
 const PHASE_FLIGHT = 0;
@@ -96,7 +98,8 @@ class DroneCamMode {
           // Enemy fires
           this.phase = PHASE_ENEMY_FIRE;
           this.enemyFireTimer = 0;
-          this.enemyShotResult = enemyFire(this.gameState.combat);
+          const dmgMult = getDifficulty(this.gameState).damageTakenMult;
+          this.enemyShotResult = enemyFire(this.gameState.combat, dmgMult);
         }
       }
     } else if (this.phase === PHASE_ENEMY_FIRE) {
@@ -438,8 +441,18 @@ class DroneCamMode {
 
       if (combat.victor === 'player' && this.gameState.economy) {
         // Loot: gold + random cargo
-        const lootGold = 20 + Math.floor(Math.random() * 40);
+        const goldMult = getDifficulty(this.gameState).goldMult;
+        const lootGold = Math.round((20 + Math.floor(Math.random() * 40)) * goldMult);
         this.gameState.economy.gold += lootGold;
+
+        // Track stats
+        if (this.gameState.stats) {
+          this.gameState.stats.shipsSunk++;
+          this.gameState.stats.goldEarned += lootGold;
+        }
+
+        // Captain's log
+        logEvent(this.gameState.captainsLog, 'combat_win', { name: combat.enemy.name });
 
         // Merchants carry more cargo
         const isMerchant = combat.npcFaction === 'merchant';
@@ -469,12 +482,53 @@ class DroneCamMode {
       }
     }
 
+    // Campaign triggers
+    if (this.gameState.campaign && combat.victor === 'player') {
+      const { checkActOneTrigger, advanceCampaign, addKeyItem } = require('../story/campaign');
+
+      // Act 0 -> 1: First victory triggers letter
+      if (checkActOneTrigger(this.gameState.campaign)) {
+        addKeyItem(this.gameState.campaign, 'letter');
+        const effects = advanceCampaign(this.gameState.campaign, 'combat_victory', {}, this.gameState.reputation);
+        for (const eff of effects) {
+          if (eff.type === 'notice') {
+            this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
+          }
+        }
+      }
+
+      // Act 3: Dispatch interception
+      if (this.gameState.campaign.act === 3 && this.gameState.campaign.phase === 'dispatch_hunt'
+          && combat.npcFaction === 'english') {
+        addKeyItem(this.gameState.campaign, 'dispatches');
+        const effects = advanceCampaign(this.gameState.campaign, 'combat_victory',
+          { faction: 'english' }, this.gameState.reputation);
+        for (const eff of effects) {
+          if (eff.type === 'notice') {
+            this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
+          }
+        }
+      }
+
+      // Act 5: Final battle
+      if (this.gameState.campaign.act === 5) {
+        const effects = advanceCampaign(this.gameState.campaign, 'combat_victory',
+          { faction: combat.npcFaction }, this.gameState.reputation);
+        for (const eff of effects) {
+          if (eff.type === 'notice') {
+            this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
+          }
+        }
+      }
+    }
+
     // Crew morale from combat result
     if (this.gameState.crew) {
       if (combat.victor === 'player') {
         onVictory(this.gameState.crew);
       } else if (combat.victor === 'enemy') {
         onLoss(this.gameState.crew);
+        logEvent(this.gameState.captainsLog, 'combat_loss', {});
       }
     }
 
@@ -484,6 +538,30 @@ class DroneCamMode {
     }
 
     this.gameState.combat = null;
+
+    // If campaign just completed (Act 5 ending set), go to credits + Hall of Fame
+    if (this.gameState.campaign && this.gameState.campaign.ending) {
+      const { addHallOfFameEntry } = require('../meta/legacy');
+      addHallOfFameEntry({
+        name: this.gameState.ship.name,
+        ending: this.gameState.campaign.ending,
+        gold: this.gameState.economy ? this.gameState.economy.gold : 0,
+        shipsSunk: this.gameState.stats ? this.gameState.stats.shipsSunk : 0,
+        day: this.gameState.quests ? this.gameState.quests.day : 0,
+        playTimeMinutes: this.gameState.stats ? this.gameState.stats.playTimeMinutes : 0,
+        difficulty: this.gameState.difficulty || 'normal',
+      });
+      if (this.gameState.stats) this.gameState.stats.campaignsCompleted++;
+      if (this.gameState.persistent) {
+        this.gameState.persistent.stats.campaignsCompleted =
+          Math.max(this.gameState.persistent.stats.campaignsCompleted || 0, 1);
+        const { savePersistent } = require('../meta/legacy');
+        savePersistent(this.gameState.persistent);
+      }
+      this.stateMachine.transition('CREDITS', this.gameState);
+      return;
+    }
+
     this.stateMachine.transition('OVERWORLD', this.gameState);
   }
 

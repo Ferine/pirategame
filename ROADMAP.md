@@ -261,10 +261,10 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 ### Automated Test Suite — COMPLETE
 
 - [x] Node.js built-in `node:test` + `node:assert/strict` — zero new dependencies
-- [x] `npm test` runs all 217 tests via `node --test test/**/*.test.js`
+- [x] `npm test` runs all 330 tests via `node --test test/**/*.test.js`
 - [x] Seeded deterministic random helper for reproducible test runs
 - [x] Test game-state factory (full gameState without map/screen)
-- [x] **Scenario tests (13 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy
+- [x] **Scenario tests (18 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy, campaign, dialog, achievements, legacy, captains-log
 - [x] **Integration tests (5 files):** trade voyage profit, combat→boarding→ship capture, crew mutiny cascade, quest delivery turn-in, faction cascade port lockout
 
 **Files:**
@@ -287,6 +287,11 @@ test/
     day-night.test.js      — Quarter/season/moon, sight range, weather bias
     events.test.js         — Event spawn, expiry, trade boom, plague port closure
     convoy.test.js         — Convoy state, formation, ambush, blockade runner
+    campaign.test.js       — Campaign state, act transitions, key items, endings
+    dialog.test.js         — Dialog trees, NPC filtering, node validity
+    achievements.test.js   — Achievement definitions, thresholds, check logic
+    legacy.test.js         — Stats, mergeStats, difficulty, Hall of Fame, New Game+, cosmetics
+    captains-log.test.js   — Log events, flushDay, prose generation, UI state
   integration/
     trade-voyage.test.js   — Buy cheap → sell dear → net profit
     combat-capture.test.js — Cannon combat → boarding → ship capture → fleet grows
@@ -310,34 +315,34 @@ test/
 
 **Files:** `convoy/convoy.js`, `convoy/convoy-hud.js`
 
-### Phase 19: Story Campaign — PLANNED
+### Phase 19: Story Campaign — COMPLETE
 
-- [ ] 5-act main storyline: "The Kattegat Conspiracy" — uncover English plot to seize Danish straits
-- [ ] Act 1: Mysterious letter found in loot after first combat victory, points to Copenhagen contact
-- [ ] Act 2: Copenhagen informant (new NPC in tavern) sends player to intercept English dispatch ship
-- [ ] Act 3: Decoded dispatches reveal fleet rally point — stealth infiltration of English fort on Anholt
-- [ ] Act 4: Rally Danish allies — reputation gate (Crown ≥ Friendly), recruit allied ships for final battle
-- [ ] Act 5: Final naval battle at Helsingør narrows — multi-round combat with English flagship
-- [ ] Campaign journal UI (J key): quest log with act summaries, clues, and next objective
-- [ ] 6 story NPCs with portraits (ASCII art) and branching dialog trees
-- [ ] Key item inventory: letter, dispatch documents, royal seal, signal flags — used to unlock act transitions
-- [ ] 3 endings based on reputation balance: Danish hero, independent pirate king, infamous outlaw
-- [ ] Campaign progress persisted in save files, replayable with different faction paths
+- [x] 5-act main storyline: "The Kattegat Conspiracy" — uncover English plot to seize Danish straits
+- [x] Act 1: Mysterious letter found in loot after first combat victory, points to Copenhagen contact
+- [x] Act 2: Copenhagen informant (new NPC in tavern) sends player to intercept English dispatch ship
+- [x] Act 3: Decoded dispatches reveal fleet rally point — stealth infiltration of English fort on Anholt
+- [x] Act 4: Rally Danish allies — reputation gate (Crown ≥ Friendly), recruit allied ships for final battle
+- [x] Act 5: Final naval battle at Helsingør narrows — multi-round combat with English flagship
+- [x] Campaign journal UI (J key): quest log with act summaries, clues, and next objective
+- [x] 6 story NPCs with portraits (ASCII art) and branching dialog trees
+- [x] Key item inventory: letter, dispatch documents, royal seal, signal flags — used to unlock act transitions
+- [x] 3 endings based on reputation balance: Danish hero, independent pirate king, infamous outlaw
+- [x] Campaign progress persisted in save files, replayable with different faction paths
 
-**Files:** `story/campaign.js`, `story/dialog.js`, `story/journal-ui.js`, `story/npcs.js`
+**Files:** `story/campaign.js`, `story/npcs.js`, `story/dialog.js`, `story/journal-ui.js`
 
-### Phase 20: Achievements & Legacy — PLANNED
+### Phase 20: Achievements & Legacy — COMPLETE
 
-- [ ] 20 achievements tracking lifetime stats: ships sunk, gold earned, ports visited, barrels hidden in, etc.
-- [ ] Achievement unlock notifications: toast overlay in top-right corner with title and icon (ASCII)
-- [ ] Legacy screen after campaign completion: stats summary, title earned, total play time
-- [ ] New Game+ mode: restart with one carried-over ship, 50% gold, all ports discovered on map
-- [ ] Difficulty settings on new game: Easy (1.5x gold, 0.7x damage taken), Normal, Hard (0.7x gold, 1.3x damage, faster guards)
-- [ ] Captain's log: auto-generated prose summary of key events per game-day, viewable in port (L key)
-- [ ] Hall of Fame: top 5 completed runs stored in `~/.kattegat-kaper/hall-of-fame.json`, shown on title screen
-- [ ] Persistent statistics across all saves: total ships sunk, gold earned, distance sailed
-- [ ] Cosmetic unlocks from achievements: alternate ship ASCII art, custom title screen color schemes
-- [ ] Final credits sequence after first campaign completion with ASCII art vignettes
+- [x] 20 achievements tracking lifetime stats: ships sunk, gold earned, ports visited, barrels hidden in, etc.
+- [x] Achievement unlock notifications: toast overlay in top-right corner with title and icon (ASCII)
+- [x] Legacy screen after campaign completion: stats summary, title earned, total play time
+- [x] New Game+ mode: restart with one carried-over ship, 50% gold, difficulty preserved
+- [x] Difficulty settings on new game: Easy (1.5x gold, 0.7x damage taken), Normal, Hard (0.7x gold, 1.3x damage, faster guards)
+- [x] Captain's log: auto-generated prose summary of key events per game-day, viewable in overworld/port (L key)
+- [x] Hall of Fame: top 5 completed runs stored in `~/.kattegat-kaper/hall-of-fame.json`, shown on title screen
+- [x] Persistent statistics across all saves: total ships sunk, gold earned, distance sailed, stored in `~/.kattegat-kaper/persistent.json`
+- [x] Cosmetic unlocks from achievements: alternate title screen color schemes (midnight, gold)
+- [x] Final credits sequence after campaign completion with ASCII ship art, stats summary, auto-scroll
 
 **Files:** `meta/achievements.js`, `meta/legacy.js`, `meta/captains-log.js`, `modes/credits.js`
 
@@ -379,6 +384,7 @@ src/
     encounter.js        — Encounter dialog (hail/flee/attack/board/infiltrate)
     melee.js            — Melee sword combat (boarding, bar fight, duel, stealth)
     stealth.js          — Stealth infiltration mode (guards, objectives, vision cones)
+    credits.js          — Auto-scroll credits sequence after campaign completion
   combat/
     combat-state.js     — Damage calculations, enemy templates, combat logic
     melee-state.js      — Melee combat state, moves, resolution, enemy AI
@@ -413,6 +419,15 @@ src/
   convoy/
     convoy.js           — Convoy & blockade data model, formation, ambush spawning
     convoy-hud.js       — Convoy HUD overlay (escort dots, formation, timer)
+  story/
+    campaign.js         — Campaign state model, 5-act progression, key items, endings
+    npcs.js             — 6 story NPC definitions, ASCII portraits, port placement
+    dialog.js           — Dialog trees (~25 nodes) for story NPCs across acts
+    journal-ui.js       — Campaign journal overlay (J key): objective, entries, items
+  meta/
+    achievements.js     — 20 achievements with stat-based thresholds and check logic
+    legacy.js           — Persistent stats, difficulty, Hall of Fame, New Game+, cosmetics
+    captains-log.js     — Event-driven prose generation, captain's log UI overlay (L key)
 ```
 
 ---

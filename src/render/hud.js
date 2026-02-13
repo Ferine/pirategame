@@ -69,7 +69,7 @@ function updateHUD(box, gameState) {
     const alive = gameState.convoy.escorts.filter(e => e.alive).length;
     const total = gameState.convoy.escorts.length;
     const timer = Math.ceil(gameState.convoy.timer);
-    const formation = gameState.convoy.formation.toUpperCase();
+    const formation = (gameState.convoy.formation || 'tight').toUpperCase();
     convoyStr = `    CONVOY: ${alive}/${total} ${formation} ${timer}s`;
   }
 

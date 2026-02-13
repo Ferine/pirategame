@@ -21,6 +21,13 @@ const {
 const { getQuarter } = require('../world/day-night');
 const { createFleetUIState, fleetHandleInput, fleetUpdate, fleetRender } = require('../fleet/fleet-ui');
 const { syncFromGameState, syncToGameState } = require('../fleet/fleet');
+const { getPortStoryNPCs } = require('../story/npcs');
+const { getDialog } = require('../story/dialog');
+const { advanceCampaign } = require('../story/campaign');
+const { createJournalState, journalHandleInput, journalRender } = require('../story/journal-ui');
+const { syncAndCheckAchievements } = require('../meta/legacy');
+const { logEvent } = require('../meta/captains-log');
+const { createLogUIState, logUIHandleInput, logUIRender } = require('../meta/captains-log');
 
 const PLAYER_CH = '@';
 const PLAYER_ATTR = sattr(208, 0); // amber on black
@@ -75,6 +82,9 @@ class PortMode {
     this.questUI = null; // mission board overlay
     this.npcs = [];      // town NPCs
     this.fleetUI = null; // fleet roster overlay
+    this.journalUI = null; // campaign journal overlay
+    this.dialogUI = null;  // story NPC dialog overlay
+    this.logUI = null;     // captain's log overlay
   }
 
   enter(gameState) {
@@ -121,6 +131,22 @@ class PortMode {
     // Spawn town NPCs
     this.npcs = spawnTownNPCs(this.townMap);
 
+    // Inject story NPCs if campaign is active
+    if (gameState.campaign && gameState.campaign.act > 0) {
+      const storyNPCs = getPortStoryNPCs(this.portName, gameState.campaign.act, this.townMap);
+      this.npcs.push(...storyNPCs);
+
+      // Process campaign port-enter event
+      const effects = advanceCampaign(gameState.campaign, 'port_enter',
+        { portName: this.portName, day: gameState.quests ? gameState.quests.day : 0 },
+        gameState.reputation);
+      for (const eff of effects) {
+        if (eff.type === 'notice') {
+          gameState.questNotices = (gameState.questNotices || []).concat([eff.message]);
+        }
+      }
+    }
+
     // Sync fleet on port entry
     if (gameState.fleet) {
       syncFromGameState(gameState.fleet, gameState);
@@ -135,6 +161,20 @@ class PortMode {
     if (gameState.crew) {
       onPortVisit(gameState.crew);
     }
+
+    // Track unique port visits
+    if (gameState.stats) {
+      if (!gameState.stats.portsVisitedSet.includes(this.portName)) {
+        gameState.stats.portsVisitedSet.push(this.portName);
+      }
+      gameState.stats.uniquePortsVisited = gameState.stats.portsVisitedSet.length;
+    }
+
+    // Captain's log
+    logEvent(gameState.captainsLog, 'port_visit', { name: this.portName });
+
+    // Sync achievements on port visit
+    syncAndCheckAchievements(gameState);
   }
 
   exit() {
@@ -144,6 +184,9 @@ class PortMode {
     this.fov = null;
     this.questUI = null;
     this.fleetUI = null;
+    this.journalUI = null;
+    this.dialogUI = null;
+    this.logUI = null;
   }
 
   update(dt) {
@@ -269,9 +312,48 @@ class PortMode {
     if (this.fleetUI) {
       fleetRender(screen, this.fleetUI, this.gameState);
     }
+
+    // Story dialog overlay
+    if (this.dialogUI) {
+      this._renderDialog(screen);
+    }
+
+    // Campaign journal overlay
+    if (this.journalUI) {
+      journalRender(screen, this.journalUI, this.gameState.campaign);
+    }
+
+    // Captain's log overlay
+    if (this.logUI) {
+      logUIRender(screen, this.logUI, this.gameState.captainsLog);
+    }
   }
 
   handleInput(key) {
+    // Route to log overlay if open
+    if (this.logUI) {
+      const consumed = logUIHandleInput(key, this.logUI, this.gameState.captainsLog);
+      if (!consumed) {
+        this.logUI = null;
+      }
+      return;
+    }
+
+    // Route to dialog overlay if open
+    if (this.dialogUI) {
+      this._handleDialogInput(key);
+      return;
+    }
+
+    // Route to journal overlay if open
+    if (this.journalUI) {
+      const consumed = journalHandleInput(key, this.journalUI, this.gameState.campaign);
+      if (!consumed) {
+        this.journalUI = null;
+      }
+      return;
+    }
+
     // Route to fleet UI if open
     if (this.fleetUI) {
       const consumed = fleetHandleInput(key, this.fleetUI, this.gameState);
@@ -317,11 +399,27 @@ class PortMode {
     if (key === 'talk') {
       const npc = this._findAdjacentNPC();
       if (npc) {
-        this.message = npc.greeting;
+        if (npc.storyNpcId && this.gameState.campaign) {
+          this._openStoryDialog(npc);
+        } else {
+          this.message = npc.greeting;
+        }
       } else {
         this.message = 'No one nearby to talk to.';
       }
       this.messageTimer = 4.0;
+      return;
+    }
+
+    // Captain's log
+    if (key === 'l' && this.gameState.captainsLog) {
+      this.logUI = createLogUIState();
+      return;
+    }
+
+    // Campaign journal
+    if (key === 'j' && this.gameState.campaign) {
+      this.journalUI = createJournalState(this.gameState.campaign);
       return;
     }
 
@@ -491,7 +589,7 @@ class PortMode {
     // Line 1: port name + gold + controls
     const eco = this.gameState.economy;
     const goldStr = eco ? `  ${eco.gold} rds` : '';
-    const line1 = ` ${this.portName}${goldStr}  |  Arrows: Walk  Enter: Interact  T: Talk  M: Missions  R: Rep  F: Fleet  Q: Ship`;
+    const line1 = ` ${this.portName}${goldStr}  |  Arrows: Walk  Enter: Interact  T: Talk  M: Missions  L: Log  Q: Ship`;
     this._writeHudText(screen, baseY + 1, 0, line1, hudAttr);
 
     // Line 2: message
@@ -1048,6 +1146,202 @@ class PortMode {
       if (bld.doorX === x && bld.doorY === y) return bld;
     }
     return null;
+  }
+
+  _openStoryDialog(npc) {
+    if (!this.gameState.campaign) {
+      this.message = npc.greeting;
+      this.messageTimer = 4.0;
+      return;
+    }
+    const tree = getDialog(npc.storyNpcId, this.gameState.campaign.act);
+    if (!tree || tree.length === 0) {
+      this.message = npc.greeting;
+      this.messageTimer = 4.0;
+      return;
+    }
+    this.dialogUI = {
+      npc,
+      tree,
+      currentNodeId: tree[0].id,
+      choiceCursor: 0,
+    };
+  }
+
+  _handleDialogInput(key) {
+    if (!this.dialogUI) return;
+    const { tree } = this.dialogUI;
+    const node = tree.find(n => n.id === this.dialogUI.currentNodeId);
+    if (!node) { this.dialogUI = null; return; }
+
+    // If no choices, any key closes
+    if (!node.choices || node.choices.length === 0) {
+      if (key === 'enter' || key === 'space' || key === 'q') {
+        this.dialogUI = null;
+      }
+      return;
+    }
+
+    if (key === 'up') {
+      this.dialogUI.choiceCursor = Math.max(0, this.dialogUI.choiceCursor - 1);
+      return;
+    }
+    if (key === 'down') {
+      this.dialogUI.choiceCursor = Math.min(node.choices.length - 1, this.dialogUI.choiceCursor + 1);
+      return;
+    }
+
+    if (key === 'enter' || key === 'space') {
+      const choice = node.choices[this.dialogUI.choiceCursor];
+      if (!choice) return;
+
+      // Apply effect
+      if (choice.effect) {
+        this._applyDialogEffect(choice.effect);
+      }
+
+      // Navigate
+      if (choice.next) {
+        const nextNode = tree.find(n => n.id === choice.next);
+        if (nextNode) {
+          this.dialogUI.currentNodeId = choice.next;
+          this.dialogUI.choiceCursor = 0;
+          return;
+        }
+      }
+
+      // No next node — close dialog
+      this.dialogUI = null;
+      return;
+    }
+
+    if (key === 'q') {
+      this.dialogUI = null;
+    }
+  }
+
+  _applyDialogEffect(effect) {
+    if (!effect || !this.gameState.campaign) return;
+
+    if (effect.type === 'advance_campaign') {
+      const campaign = this.gameState.campaign;
+      const npcId = this.dialogUI ? this.dialogUI.npc.storyNpcId : null;
+      const effects = advanceCampaign(campaign, 'npc_dialog_complete',
+        { npcId, day: this.gameState.quests ? this.gameState.quests.day : 0 },
+        this.gameState.reputation);
+      for (const eff of effects) {
+        if (eff.type === 'notice') {
+          this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
+        }
+      }
+    } else if (effect.type === 'add_key_item') {
+      const { addKeyItem } = require('../story/campaign');
+      addKeyItem(this.gameState.campaign, effect.itemId);
+    } else if (effect.type === 'set_flag') {
+      this.gameState.campaign.flags[effect.flag] = true;
+    }
+  }
+
+  _renderDialog(screen) {
+    if (!this.dialogUI) return;
+    const { npc, tree, currentNodeId, choiceCursor } = this.dialogUI;
+    const node = tree.find(n => n.id === currentNodeId);
+    if (!node) return;
+
+    const sw = screen.width;
+    const sh = screen.height;
+    const panelW = Math.min(58, sw - 4);
+    const panelH = Math.min(18, sh - 4);
+    const px = Math.floor((sw - panelW) / 2);
+    const py = Math.floor((sh - panelH) / 2);
+
+    const BG = sattr(233, 233);
+    const BORDER = sattr(94, 233);
+    const TITLE_ATTR = sattr(178, 233);
+    const TEXT_ATTR = sattr(252, 233);
+    const DIM = sattr(240, 233);
+    const SEL = sattr(233, 178);
+    const UNSEL = sattr(250, 233);
+    const PORTRAIT_ATTR = sattr(117, 233);
+
+    // Clear panel
+    for (let y = py; y < py + panelH; y++) {
+      const row = screen.lines[y];
+      if (!row) continue;
+      for (let x = px; x < px + panelW && x < row.length; x++) {
+        row[x][0] = BG;
+        row[x][1] = ' ';
+      }
+      row.dirty = true;
+    }
+
+    // Border
+    const _wc = (y, x, ch) => {
+      const row = screen.lines[y];
+      if (row && x >= 0 && x < row.length) { row[x][0] = BORDER; row[x][1] = ch; }
+    };
+    _wc(py, px, '\u250C');
+    for (let x = px + 1; x < px + panelW - 1; x++) _wc(py, x, '\u2500');
+    _wc(py, px + panelW - 1, '\u2510');
+    _wc(py + panelH - 1, px, '\u2514');
+    for (let x = px + 1; x < px + panelW - 1; x++) _wc(py + panelH - 1, x, '\u2500');
+    _wc(py + panelH - 1, px + panelW - 1, '\u2518');
+    for (let y = py + 1; y < py + panelH - 1; y++) { _wc(y, px, '\u2502'); _wc(y, px + panelW - 1, '\u2502'); }
+
+    // Title — NPC name
+    const title = ` ${node.speaker || npc.name} `;
+    this._writeHudText(screen, py, px + Math.floor((panelW - title.length) / 2), title, TITLE_ATTR);
+
+    // Portrait (left side, 8 lines)
+    if (npc.portrait) {
+      for (let i = 0; i < npc.portrait.length && i < panelH - 4; i++) {
+        this._writeHudText(screen, py + 2 + i, px + 2, npc.portrait[i], PORTRAIT_ATTR);
+      }
+    }
+
+    // Text (right of portrait)
+    const textX = px + 12;
+    const textW = panelW - 14;
+    const words = node.text.split(' ');
+    let line = '';
+    let lineY = py + 2;
+    for (const word of words) {
+      if (line.length + word.length + 1 > textW) {
+        this._writeHudText(screen, lineY, textX, line, TEXT_ATTR);
+        lineY++;
+        line = word;
+      } else {
+        line = line ? line + ' ' + word : word;
+      }
+    }
+    if (line) {
+      this._writeHudText(screen, lineY, textX, line, TEXT_ATTR);
+    }
+
+    // Choices (at bottom)
+    if (node.choices && node.choices.length > 0) {
+      const choiceY = py + panelH - 2 - node.choices.length;
+      for (let i = 0; i < node.choices.length; i++) {
+        const c = node.choices[i];
+        const isSelected = i === choiceCursor;
+        const attr = isSelected ? SEL : UNSEL;
+        const pointer = isSelected ? '> ' : '  ';
+
+        if (isSelected) {
+          const row = screen.lines[choiceY + i];
+          if (row) {
+            for (let x = px + 2; x < px + panelW - 2 && x < row.length; x++) {
+              row[x][0] = SEL; row[x][1] = ' ';
+            }
+          }
+        }
+        this._writeHudText(screen, choiceY + i, px + 4, pointer + c.label, attr);
+      }
+    } else {
+      // No choices — show continue prompt
+      const prompt = ' Enter: Continue ';
+      this._writeHudText(screen, py + panelH - 2, px + Math.floor((panelW - prompt.length) / 2), prompt, DIM);
+    }
   }
 
   _returnToShip() {

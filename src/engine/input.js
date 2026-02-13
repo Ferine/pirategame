@@ -68,6 +68,21 @@ class InputHandler {
       this.stateMachine.handleInput('f');
     });
 
+    // J for campaign journal
+    this.screen.key(['j'], () => {
+      this.stateMachine.handleInput('j');
+    });
+
+    // L for captain's log
+    this.screen.key(['l'], () => {
+      this.stateMachine.handleInput('l');
+    });
+
+    // H for barrel hide (stealth)
+    this.screen.key(['h'], () => {
+      this.stateMachine.handleInput('h');
+    });
+
     // Q to quit
     this.screen.key(['q'], () => {
       this.stateMachine.handleInput('q');

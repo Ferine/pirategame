@@ -11,6 +11,9 @@ const ENEMY_TEMPLATES = [
   { name: 'Prussian Frigate', hull: 120, crew: 60, masts: 3 },
 ];
 
+// English flagship template for Act 5 story boss
+const ENGLISH_FLAGSHIP = { name: 'HMS Sovereign', hull: 200, crew: 100, masts: 4 };
+
 // Damage tables by ammo type: [minHull, maxHull, minCrew, maxCrew, mastChance]
 const AMMO_DAMAGE = {
   iron:  { hull: [15, 25], crew: [0, 3],  masts: 0 },
@@ -132,7 +135,8 @@ function applyDamageToEnemy(combat, dmg) {
   combat.ammoInventory[combat.ammoType] = Math.max(0, combat.ammoInventory[combat.ammoType] - 1);
 }
 
-function enemyFire(combat) {
+function enemyFire(combat, damageTakenMult) {
+  const dmgMult = damageTakenMult || 1.0;
   const e = combat.enemy;
   const crewRatio = e.crew / e.maxCrew;
   const accuracy = 0.5 + crewRatio * 0.3;
@@ -144,8 +148,8 @@ function enemyFire(combat) {
     return combat.lastShotResult;
   }
 
-  const hullDmg = Math.round(randRange(8, 20));
-  const crewDmg = Math.round(randRange(0, 4));
+  const hullDmg = Math.round(randRange(8, 20) * dmgMult);
+  const crewDmg = Math.round(randRange(0, 4) * dmgMult);
   const mastDmg = Math.random() < 0.1 ? 1 : 0;
 
   const p = combat.player;
@@ -180,4 +184,5 @@ module.exports = {
   checkCombatEnd,
   HIT_RADIUS,
   NEAR_MISS_RADIUS,
+  ENGLISH_FLAGSHIP,
 };

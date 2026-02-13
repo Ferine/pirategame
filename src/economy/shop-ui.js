@@ -6,6 +6,8 @@ const { getTradePriceModifier, applyAction } = require('../world/factions');
 const { getTradePriceMult } = require('../world/events');
 const { getShipsForSale, createShip } = require('../fleet/ship-types');
 const { addShip, MAX_FLEET_SIZE, getFlagship, syncFromGameState } = require('../fleet/fleet');
+const { getDifficulty } = require('../meta/legacy');
+const { logEvent } = require('../meta/captains-log');
 
 // Colors
 const BG = sattr(233, 233);
@@ -45,6 +47,14 @@ function createShopState(type, portName, gameState) {
       for (const goodId of Object.keys(state.prices)) {
         state.prices[goodId].buy = Math.round(state.prices[goodId].buy * mod.buyMult);
         state.prices[goodId].sell = Math.round(state.prices[goodId].sell * mod.sellMult);
+      }
+    }
+
+    // Apply difficulty gold mult to sell prices
+    const goldMult = getDifficulty(gameState).goldMult;
+    if (goldMult !== 1.0) {
+      for (const goodId of Object.keys(state.prices)) {
+        state.prices[goodId].sell = Math.round(state.prices[goodId].sell * goldMult);
       }
     }
   }
@@ -107,6 +117,7 @@ function shopHandleInput(key, shop, gameState) {
           eco.cargo[good.id] = (eco.cargo[good.id] || 0) + 1;
           shop.message = `Bought 1 ${good.unit} of ${good.name} for ${price} rds.`;
           shop.messageTimer = 2.0;
+          if (gameState.stats) gameState.stats.tradesMade++;
           // Small reputation boost with Merchant Guild
           if (gameState.reputation) applyAction(gameState.reputation, 'trade_goods');
         }
@@ -122,6 +133,11 @@ function shopHandleInput(key, shop, gameState) {
           if (eco.cargo[good.id] <= 0) delete eco.cargo[good.id];
           shop.message = `Sold 1 ${good.unit} of ${good.name} for ${price} rds.`;
           shop.messageTimer = 2.0;
+          if (gameState.stats) {
+            gameState.stats.tradesMade++;
+            gameState.stats.goldEarned += price;
+          }
+          logEvent(gameState.captainsLog, 'trade', { port: shop.portName });
           // Small reputation boost with Merchant Guild
           if (gameState.reputation) applyAction(gameState.reputation, 'trade_goods');
         }

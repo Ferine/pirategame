@@ -28,6 +28,10 @@ const { createWeatherState } = require('./world/weather');
 const { createQuestState } = require('./world/quests');
 const { createEventsState } = require('./world/events');
 const { createFleetState } = require('./fleet/fleet');
+const { createCampaignState } = require('./story/campaign');
+const { createStats, loadPersistent } = require('./meta/legacy');
+const { createLogState } = require('./meta/captains-log');
+const { CreditsMode } = require('./modes/credits');
 
 async function main() {
   const screen = createScreen();
@@ -84,6 +88,7 @@ async function main() {
     fleet: createFleetState('Drakar'),
     questNotices: [],
     treasureMaps: [],
+    campaign: createCampaignState(),
     convoy: null,
     blockade: null,
     melee: null,
@@ -91,6 +96,12 @@ async function main() {
     boardingNpcId: null,
     stealthInfo: null,
     crtEnabled: false,
+    stats: createStats(),
+    difficulty: 'normal',
+    captainsLog: createLogState(),
+    persistent: loadPersistent(),
+    achievementToasts: [],
+    ngPlus: false,
   };
 
   // Set up state machine
@@ -106,6 +117,7 @@ async function main() {
   const islandMode = new IslandMode(sm, gameState);
   const meleeMode = new MeleeMode(sm, gameState);
   const stealthMode = new StealthMode(sm, gameState);
+  const creditsMode = new CreditsMode(sm, gameState);
 
   sm.register('TITLE', titleMode);
   sm.register('OVERWORLD', overworldMode);
@@ -118,6 +130,7 @@ async function main() {
   sm.register('ISLAND', islandMode);
   sm.register('MELEE', meleeMode);
   sm.register('STEALTH', stealthMode);
+  sm.register('CREDITS', creditsMode);
 
   // Set up input
   new InputHandler(screen, sm);

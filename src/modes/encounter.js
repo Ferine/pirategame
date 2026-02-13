@@ -76,6 +76,13 @@ class EncounterMode {
       if (c.id === 'infiltrate') return this.npc && this.npc.faction === FACTION.ENGLISH;
       return true;
     });
+
+    // Story encounter flavor text for Act 5 boss
+    this.storyFlavorText = null;
+    if (this.gameState.campaign && this.gameState.campaign.act === 5
+        && this.npc && this.npc.storyBoss) {
+      this.storyFlavorText = 'The HMS Sovereign looms before you. This is the moment the Kattegat has waited for.';
+    }
   }
 
   exit() {
@@ -132,7 +139,7 @@ class EncounterMode {
     _writeText(screen, py + 3, px + 3, stats, TEXT_ATTR);
 
     // Encounter text
-    const flavorText = ENCOUNTER_TEXT[this.npc.faction] || 'A ship approaches.';
+    const flavorText = this.storyFlavorText || ENCOUNTER_TEXT[this.npc.faction] || 'A ship approaches.';
     _writeWrapped(screen, py + 5, px + 3, panelW - 6, flavorText, TEXT_ATTR);
 
     if (this.phase === 'choose') {

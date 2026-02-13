@@ -22,6 +22,10 @@ const { updateConvoy, toggleFormation, checkConvoyArrival, checkConvoyFailed,
         shouldSpawnAmbush, spawnAmbushNPC, damageEscort,
         getFormationBonus, updateBlockade } = require('../convoy/convoy');
 const { renderConvoyOverlay } = require('../convoy/convoy-hud');
+const { createJournalState, journalHandleInput, journalRender } = require('../story/journal-ui');
+const { getDifficulty } = require('../meta/legacy');
+const { logEvent, flushDay } = require('../meta/captains-log');
+const { createLogUIState, logUIHandleInput, logUIRender } = require('../meta/captains-log');
 
 // Movement direction vectors: N, NE, E, SE, S, SW, W, NW
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -53,6 +57,8 @@ class OverworldMode {
     this.viewW = 0;
     this.viewH = 0;
     this.showMap = false;
+    this.journalUI = null;
+    this.logUI = null;
   }
 
   enter(gameState) {
@@ -86,6 +92,10 @@ class OverworldMode {
       syncToGameState(gameState.fleet, gameState);
     }
 
+    // Reset overlays
+    this.journalUI = null;
+    this.logUI = null;
+
     // Cooldown to prevent re-triggering encounters immediately
     this.encounterCooldown = 1.0;
 
@@ -105,6 +115,20 @@ class OverworldMode {
 
   update(dt) {
     const { wind, ship } = this.gameState;
+
+    // Track play time
+    if (this.gameState.stats) {
+      this.gameState.stats.playTimeSeconds += dt;
+      this.gameState.stats.playTimeMinutes = Math.floor(this.gameState.stats.playTimeSeconds / 60);
+    }
+
+    // Process achievement toasts
+    if (this.gameState.achievementToasts && this.gameState.achievementToasts.length > 0) {
+      this.gameState.achievementToasts[0].timer -= dt;
+      if (this.gameState.achievementToasts[0].timer <= 0) {
+        this.gameState.achievementToasts.shift();
+      }
+    }
 
     // Animation timer
     this.animTimer += dt;
@@ -132,8 +156,11 @@ class OverworldMode {
         wx.damageTimer -= 5.0;
         const effects = getWeatherEffects(wx);
         if (effects.hullDmg > 0) {
-          ship.hull = Math.max(1, ship.hull - effects.hullDmg);
+          const dmgMult = getDifficulty(this.gameState).damageTakenMult;
+          const dmg = Math.round(effects.hullDmg * dmgMult);
+          ship.hull = Math.max(1, ship.hull - dmg);
           this._pushNotice('The storm batters your hull!', 3.0);
+          logEvent(this.gameState.captainsLog, 'storm', {});
         }
       }
     }
@@ -188,7 +215,13 @@ class OverworldMode {
       // Fire world events on day boundaries
       if (daysAdvanced > 0 && this.gameState.events) {
         for (let d = 0; d < daysAdvanced; d++) {
-          onDayAdvance(this.gameState, this.gameState.quests.day - daysAdvanced + d + 1);
+          const day = this.gameState.quests.day - daysAdvanced + d + 1;
+          onDayAdvance(this.gameState, day);
+          // Flush captain's log for previous day and start new day
+          if (this.gameState.captainsLog) {
+            flushDay(this.gameState.captainsLog, day - 1);
+            logEvent(this.gameState.captainsLog, 'new_day', { day });
+          }
         }
       }
     }
@@ -227,6 +260,29 @@ class OverworldMode {
         this._pushNotice(next.message, next.duration);
       } else if (Array.isArray(this.gameState.questNotices) && this.gameState.questNotices.length > 0) {
         this._pushNotice(this.gameState.questNotices.shift(), 5.0);
+      }
+    }
+
+    // Act 5: Spawn English flagship near Helsingor
+    if (this.gameState.campaign && this.gameState.campaign.act === 5
+        && !this.gameState.campaign.flags.flagshipSpawned) {
+      const helsingor = this._findPortByName('Helsingor');
+      if (helsingor) {
+        const dist = Math.sqrt((ship.x - helsingor.actualX) ** 2 + (ship.y - helsingor.actualY) ** 2);
+        if (dist < 20) {
+          const flagship = {
+            id: 'flagship', name: 'HMS Sovereign', faction: 'english',
+            x: helsingor.actualX + 5, y: helsingor.actualY + 3,
+            hull: 200, maxHull: 200, crew: 100, maxCrew: 100, masts: 4,
+            speed: 1.5, aggression: 1.0, moveAccum: 0,
+            aiTarget: { x: ship.x, y: ship.y }, aiTimer: 5,
+            direction: 0, storyBoss: true,
+          };
+          if (!this.gameState.npcShips) this.gameState.npcShips = [];
+          this.gameState.npcShips.push(flagship);
+          this.gameState.campaign.flags.flagshipSpawned = true;
+          this._pushNotice('The English fleet appears at the narrows!', 5.0);
+        }
       }
     }
 
@@ -309,9 +365,50 @@ class OverworldMode {
     if (this.showMap) {
       this._renderMapOverlay(screen);
     }
+
+    // Journal overlay
+    if (this.journalUI) {
+      journalRender(screen, this.journalUI, this.gameState.campaign);
+    }
+
+    // Captain's log overlay
+    if (this.logUI) {
+      logUIRender(screen, this.logUI, this.gameState.captainsLog);
+    }
+
+    // Achievement toast (top-right corner)
+    this._renderAchievementToast(screen);
   }
 
   handleInput(key) {
+    // Captain's log overlay takes priority
+    if (this.logUI) {
+      const consumed = logUIHandleInput(key, this.logUI, this.gameState.captainsLog);
+      if (!consumed) {
+        this.logUI = null;
+      }
+      return;
+    }
+
+    // Journal overlay takes priority
+    if (this.journalUI) {
+      const consumed = journalHandleInput(key, this.journalUI, this.gameState.campaign);
+      if (!consumed) {
+        this.journalUI = null;
+      }
+      return;
+    }
+
+    if (key === 'l' && this.gameState.captainsLog) {
+      this.logUI = createLogUIState();
+      return;
+    }
+
+    if (key === 'j' && this.gameState.campaign) {
+      this.journalUI = createJournalState(this.gameState.campaign);
+      return;
+    }
+
     if (key === 'combat_test') {
       this.gameState.combat = createCombatState(this.gameState);
       this.stateMachine.transition('SPYGLASS', this.gameState);
@@ -425,6 +522,7 @@ class OverworldMode {
       if (TILE_DEFS[tile] && TILE_DEFS[tile].passable) {
         ship.x = nx;
         ship.y = ny;
+        if (this.gameState.stats) this.gameState.stats.distanceSailed++;
         this._computeFOV();
 
         // Check for port tile → harbor approach
@@ -660,6 +758,15 @@ class OverworldMode {
     return null;
   }
 
+  _findPortByName(name) {
+    const ports = this.gameState.map.ports;
+    if (!ports) return null;
+    for (const port of ports) {
+      if (port.name === name) return port;
+    }
+    return null;
+  }
+
   _findNearestPort() {
     const ports = this.gameState.map.ports;
     if (!ports || !ports.length) return null;
@@ -829,6 +936,40 @@ class OverworldMode {
     } else {
       this.moraleMessage = message || '';
       this.moraleMessageTimer = Math.max(0.1, duration || 3.0);
+    }
+  }
+
+  _renderAchievementToast(screen) {
+    const toasts = this.gameState.achievementToasts;
+    if (!toasts || toasts.length === 0) return;
+
+    const toast = toasts[0];
+    const text = ` ${toast.icon} ${toast.title} `;
+    const w = text.length + 2;
+    const sx = screen.width - w - 1;
+    const sy = 1;
+
+    const bgAttr = sattr(233, 178); // dark on gold
+    const textAttr = sattr(233, 178);
+
+    for (let x = sx; x < sx + w && x < screen.width; x++) {
+      const row = screen.lines[sy];
+      if (row && x >= 0 && x < row.length) {
+        row[x][0] = bgAttr;
+        row[x][1] = ' ';
+      }
+    }
+
+    const row = screen.lines[sy];
+    if (row) {
+      for (let i = 0; i < text.length; i++) {
+        const x = sx + 1 + i;
+        if (x >= 0 && x < row.length) {
+          row[x][0] = textAttr;
+          row[x][1] = text[i];
+        }
+      }
+      row.dirty = true;
     }
   }
 

@@ -86,6 +86,68 @@ describe('save-load', () => {
     });
   });
 
+  describe('corrupt save does not modify state', () => {
+    it('returns false and preserves original hull on corrupt data', () => {
+      const gs = withDeterministicRandom(1, () => createTestGameState());
+      const originalHull = gs.ship.hull;
+      const originalGold = gs.economy.gold;
+
+      // Corrupt JSON: valid JSON but missing ship field
+      const ok = deserializeGameState('{"version":1,"economy":{"gold":9999}}', gs);
+      assert.equal(ok, false);
+      assert.equal(gs.ship.hull, originalHull);
+      assert.equal(gs.economy.gold, originalGold);
+    });
+
+    it('returns false for truncated save data', () => {
+      const gs = withDeterministicRandom(1, () => createTestGameState());
+      const ok = deserializeGameState('{"version":1,"ship":{"x":50', gs);
+      assert.equal(ok, false);
+    });
+  });
+
+  describe('campaign round-trip', () => {
+    it('preserves campaign state with act and key items', () => {
+      const original = withDeterministicRandom(1, () => createTestGameState());
+      const { createCampaignState, addKeyItem } = require('../../src/story/campaign');
+      original.campaign = createCampaignState();
+      original.campaign.act = 3;
+      original.campaign.phase = 'fort_infiltration';
+      addKeyItem(original.campaign, 'letter');
+      addKeyItem(original.campaign, 'dispatches');
+      original.campaign.flags.letterFound = true;
+      original.campaign.flags.informantMet = true;
+      original.campaign.journalEntries.push({ act: 1, title: 'Test', text: 'Test entry', day: 5 });
+
+      const json = serializeGameState(original);
+      const restored = withDeterministicRandom(2, () => createTestGameState());
+      const ok = deserializeGameState(json, restored);
+
+      assert.ok(ok);
+      assert.ok(restored.campaign);
+      assert.equal(restored.campaign.act, 3);
+      assert.equal(restored.campaign.phase, 'fort_infiltration');
+      assert.deepEqual(restored.campaign.keyItems, ['letter', 'dispatches']);
+      assert.equal(restored.campaign.flags.letterFound, true);
+      assert.equal(restored.campaign.flags.informantMet, true);
+      assert.equal(restored.campaign.journalEntries.length, 1);
+    });
+
+    it('handles old saves without campaign by creating fresh state', () => {
+      const gs = withDeterministicRandom(1, () => createTestGameState());
+      const oldSave = JSON.stringify({
+        version: 1,
+        ship: { x: 100, y: 50, hull: 80, maxHull: 100, name: 'OldShip' },
+        wind: { direction: 1, strength: 2, changeTimer: 20 },
+      });
+      const ok = deserializeGameState(oldSave, gs);
+      assert.ok(ok);
+      assert.ok(gs.campaign);
+      assert.equal(gs.campaign.act, 0);
+      assert.deepEqual(gs.campaign.keyItems, []);
+    });
+  });
+
   describe('old save compatibility', () => {
     it('creates fleet when missing from save', () => {
       const gs = withDeterministicRandom(1, () => createTestGameState());
@@ -112,6 +174,68 @@ describe('save-load', () => {
       });
       deserializeGameState(save, gs);
       assert.equal(gs.events.notifications.length, 0);
+    });
+
+    it('creates campaign from old save without campaign field', () => {
+      const gs = withDeterministicRandom(1, () => createTestGameState());
+      const oldSave = JSON.stringify({
+        version: 1,
+        ship: { x: 100, y: 50, hull: 80, maxHull: 100, name: 'OldShip' },
+        wind: { direction: 1, strength: 2, changeTimer: 20 },
+      });
+      const ok = deserializeGameState(oldSave, gs);
+      assert.ok(ok);
+      assert.ok(gs.campaign);
+      assert.equal(gs.campaign.act, 0);
+      assert.equal(gs.campaign.ending, null);
+      assert.deepEqual(gs.campaign.keyItems, []);
+      assert.deepEqual(gs.campaign.flags, {});
+    });
+  });
+
+  describe('Phase 20 fields round-trip', () => {
+    it('preserves stats through serialize/deserialize', () => {
+      const original = withDeterministicRandom(1, () => createTestGameState());
+      original.stats.shipsDefeated = 7;
+      original.stats.goldEarned = 1500;
+      original.stats.stealthPerfect = 2;
+
+      const json = serializeGameState(original);
+      const restored = withDeterministicRandom(2, () => createTestGameState());
+      const ok = deserializeGameState(json, restored);
+
+      assert.ok(ok);
+      assert.equal(restored.stats.shipsDefeated, 7);
+      assert.equal(restored.stats.goldEarned, 1500);
+      assert.equal(restored.stats.stealthPerfect, 2);
+    });
+
+    it('preserves captainsLog through serialize/deserialize', () => {
+      const original = withDeterministicRandom(1, () => createTestGameState());
+      original.captainsLog.entries.push({ type: 'port_visit', text: 'Visited Helsingor', day: 3 });
+      original.captainsLog.entries.push({ type: 'combat', text: 'Sank a frigate', day: 5 });
+
+      const json = serializeGameState(original);
+      const restored = withDeterministicRandom(2, () => createTestGameState());
+      const ok = deserializeGameState(json, restored);
+
+      assert.ok(ok);
+      assert.equal(restored.captainsLog.entries.length, 2);
+      assert.equal(restored.captainsLog.entries[0].text, 'Visited Helsingor');
+    });
+
+    it('preserves difficulty and ngPlus through serialize/deserialize', () => {
+      const original = withDeterministicRandom(1, () => createTestGameState());
+      original.difficulty = 'hard';
+      original.ngPlus = true;
+
+      const json = serializeGameState(original);
+      const restored = withDeterministicRandom(2, () => createTestGameState());
+      const ok = deserializeGameState(json, restored);
+
+      assert.ok(ok);
+      assert.equal(restored.difficulty, 'hard');
+      assert.equal(restored.ngPlus, true);
     });
   });
 });

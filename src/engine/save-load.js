@@ -5,6 +5,8 @@ const path = require('path');
 const os = require('os');
 const { createQuestState } = require('../world/quests');
 const { createFleetState, syncFromGameState: fleetSyncFrom } = require('../fleet/fleet');
+const { syncAndCheckAchievements } = require('../meta/legacy');
+const { createCampaignState } = require('../story/campaign');
 
 const SAVE_DIR = path.join(os.homedir(), '.kattegat-kaper');
 
@@ -40,7 +42,12 @@ function serializeGameState(gameState) {
     fleet: gameState.fleet ? JSON.parse(JSON.stringify(gameState.fleet)) : null,
     convoy: gameState.convoy ? JSON.parse(JSON.stringify(gameState.convoy)) : null,
     blockade: gameState.blockade ? JSON.parse(JSON.stringify(gameState.blockade)) : null,
+    campaign: gameState.campaign ? JSON.parse(JSON.stringify(gameState.campaign)) : null,
     crtEnabled: gameState.crtEnabled || false,
+    stats: gameState.stats ? JSON.parse(JSON.stringify(gameState.stats)) : null,
+    captainsLog: gameState.captainsLog ? JSON.parse(JSON.stringify(gameState.captainsLog)) : null,
+    difficulty: gameState.difficulty || 'normal',
+    ngPlus: gameState.ngPlus || false,
   };
 
   return JSON.stringify(data, null, 2);
@@ -125,8 +132,27 @@ function deserializeGameState(json, gameState) {
   gameState.convoy = data.convoy || null;
   gameState.blockade = data.blockade || null;
 
+  // Restore campaign
+  gameState.campaign = data.campaign || createCampaignState();
+
   // Restore CRT toggle
   gameState.crtEnabled = data.crtEnabled || false;
+
+  // Restore stats
+  if (data.stats && gameState.stats) {
+    Object.assign(gameState.stats, data.stats);
+  }
+
+  // Restore captain's log
+  if (data.captainsLog) {
+    gameState.captainsLog = data.captainsLog;
+  }
+
+  // Restore difficulty
+  gameState.difficulty = data.difficulty || 'normal';
+
+  // Restore NG+ flag
+  gameState.ngPlus = data.ngPlus || false;
 
   return true;
 }
@@ -140,6 +166,8 @@ function saveGame(gameState, slot) {
   const json = serializeGameState(gameState);
   try {
     fs.writeFileSync(filePath, json, 'utf8');
+    // Sync stats and check achievements on save
+    syncAndCheckAchievements(gameState);
     return true;
   } catch (e) {
     return false;

@@ -8,6 +8,8 @@ const { spawnRival, updateRival } = require('../island/rival');
 const { rollTreasureLoot } = require('../island/treasure');
 const { createMeleeState } = require('../combat/melee-state');
 const { relocateShipToSafeWater } = require('../world/navigation');
+const { getDifficulty } = require('../meta/legacy');
+const { logEvent } = require('../meta/captains-log');
 
 const PLAYER_CH = '@';
 const PLAYER_ATTR = sattr(208, 0); // amber on black
@@ -508,9 +510,20 @@ class IslandMode {
     // Roll loot
     const loot = rollTreasureLoot();
 
+    // Apply difficulty gold mult
+    const goldMult = getDifficulty(this.gameState).goldMult;
+    loot.gold = Math.round(loot.gold * goldMult);
+
     // Apply loot
     if (this.gameState.economy) {
       this.gameState.economy.gold += loot.gold;
+
+      // Track stats
+      if (this.gameState.stats) {
+        this.gameState.stats.treasuresFound++;
+        this.gameState.stats.goldEarned += loot.gold;
+      }
+      logEvent(this.gameState.captainsLog, 'treasure', {});
       if (loot.cargo && loot.cargoQty > 0) {
         this.gameState.economy.cargo[loot.cargo] =
           (this.gameState.economy.cargo[loot.cargo] || 0) + loot.cargoQty;

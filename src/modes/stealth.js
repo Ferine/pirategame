@@ -6,6 +6,8 @@ const { ST, STEALTH_TILES, generateStealthMap } = require('../stealth/stealth-ma
 const { ALERT, createGuard, updateGuard, getVisionConeTiles } = require('../stealth/guard-ai');
 const { createMeleeState } = require('../combat/melee-state');
 const { applyAction } = require('../world/factions');
+const { getDifficulty } = require('../meta/legacy');
+const { logEvent } = require('../meta/captains-log');
 
 const PLAYER_CH = '@';
 const PLAYER_ATTR = sattr(208, 0);
@@ -194,8 +196,10 @@ class StealthMode {
     // Barrel message cooldown
     if (this.barrelMsgCooldown > 0) this.barrelMsgCooldown -= dt;
 
-    // Update guards
+    // Update guards (apply difficulty speed mult)
+    const moveInterval = 0.5 / getDifficulty(this.gameState).guardSpeedMult;
     for (const guard of this.guards) {
+      guard.moveInterval = moveInterval;
       const result = updateGuard(guard, this.playerX, this.playerY, this.map, dt, this.guards, this.isHiding);
       if (result === 'combat') {
         this.isHiding = false;
@@ -346,6 +350,8 @@ class StealthMode {
         this.isHiding = true;
         this.message = 'You climb into a barrel...';
         this.messageTimer = 2.5;
+        if (this.gameState.stats) this.gameState.stats.barrelsHidden++;
+        logEvent(this.gameState.captainsLog, 'barrel', {});
         this._computeFOV();
         return;
       }
@@ -450,15 +456,39 @@ class StealthMode {
   }
 
   _applyRewards() {
-    const baseGold = 50 + Math.floor(this.objectivesCompleted * 50 + Math.random() * 50);
+    const goldMult = getDifficulty(this.gameState).goldMult;
+    const baseGold = Math.round((50 + Math.floor(this.objectivesCompleted * 50 + Math.random() * 50)) * goldMult);
     if (this.gameState.economy) {
       this.gameState.economy.gold += baseGold;
     }
     this._rewardGold = baseGold;
 
+    // Check if no guards were ever alerted (stealth perfect)
+    if (this.resultType === 'success') {
+      const noneAlerted = this.guards.every(g => !g.alive || g.alertState === 'patrol');
+      if (noneAlerted && this.gameState.stats) {
+        this.gameState.stats.stealthPerfect++;
+        logEvent(this.gameState.captainsLog, 'stealth_success', {});
+      }
+    }
+
     // Reputation: attack_english equivalent
     if (this.gameState.reputation) {
       applyAction(this.gameState.reputation, 'attack_english');
+    }
+
+    // Campaign: Act 3 fort infiltration
+    if (this.gameState.campaign && this.gameState.campaign.act === 3
+        && this.gameState.campaign.phase === 'fort_infiltration'
+        && this.resultType === 'success') {
+      const { addKeyItem, advanceCampaign } = require('../story/campaign');
+      addKeyItem(this.gameState.campaign, 'royal_seal');
+      const effects = advanceCampaign(this.gameState.campaign, 'stealth_complete', {}, this.gameState.reputation);
+      for (const eff of effects) {
+        if (eff.type === 'notice') {
+          this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
+        }
+      }
     }
   }
 

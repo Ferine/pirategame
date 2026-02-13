@@ -7,6 +7,9 @@ const { createWeatherState } = require('../../src/world/weather');
 const { createQuestState } = require('../../src/world/quests');
 const { createEventsState } = require('../../src/world/events');
 const { createFleetState } = require('../../src/fleet/fleet');
+const { createStats, createPersistent } = require('../../src/meta/legacy');
+const { createLogState } = require('../../src/meta/captains-log');
+const { createCampaignState } = require('../../src/story/campaign');
 
 /**
  * Build a fresh gameState with all subsystems initialised.
@@ -45,7 +48,14 @@ function createTestGameState(overrides = {}) {
     meleeResult: null,
     boardingNpcId: null,
     stealthInfo: null,
+    campaign: createCampaignState(),
     crtEnabled: false,
+    stats: createStats(),
+    difficulty: 'normal',
+    captainsLog: createLogState(),
+    persistent: createPersistent(),
+    achievementToasts: [],
+    ngPlus: false,
   };
 
   // Shallow-merge overrides

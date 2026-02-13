@@ -5,6 +5,7 @@ const { MOVES, MOVE_LIST, ZONE_LIST, resolveRound, enemyAI, checkMeleeEnd, canAf
 const { getStanceArt, getClashFrame, PLAYER_COLOR, ENEMY_COLOR, SWORD_COLOR, ZONE_LABEL } = require('../combat/melee-art');
 const { getNpcShipType, createShip } = require('../fleet/ship-types');
 const { addShip, MAX_FLEET_SIZE } = require('../fleet/fleet');
+const { getDifficulty } = require('../meta/legacy');
 
 // Colors
 const BG = sattr(233, 233);
@@ -383,9 +384,12 @@ class MeleeMode {
     const gs = this.gameState;
 
     if (m.victor === 'player') {
+      if (gs.stats) gs.stats.meleeWins++;
+
       if (m.context === 'boarding') {
         // Extra loot
-        const gold = 50 + Math.floor(Math.random() * 100);
+        const goldMult = getDifficulty(gs).goldMult;
+        const gold = Math.round((50 + Math.floor(Math.random() * 100)) * goldMult);
         const cargoTypes = ['cod', 'herring', 'grain', 'timber', 'iron', 'silk'];
         const cargo = cargoTypes[Math.floor(Math.random() * cargoTypes.length)];
         const cargoQty = 2 + Math.floor(Math.random() * 4);

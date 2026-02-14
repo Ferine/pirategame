@@ -7,6 +7,7 @@ const { createQuestState } = require('../world/quests');
 const { createFleetState, syncFromGameState: fleetSyncFrom } = require('../fleet/fleet');
 const { syncAndCheckAchievements } = require('../meta/legacy');
 const { createCampaignState } = require('../story/campaign');
+const { MAP_WIDTH, MAP_HEIGHT } = require('../world/map-gen');
 
 const SAVE_DIR = path.join(os.homedir(), '.kattegat-kaper');
 
@@ -48,6 +49,7 @@ function serializeGameState(gameState) {
     captainsLog: gameState.captainsLog ? JSON.parse(JSON.stringify(gameState.captainsLog)) : null,
     difficulty: gameState.difficulty || 'normal',
     ngPlus: gameState.ngPlus || false,
+    visibility: gameState.visibility ? _rleEncode(gameState.visibility) : null,
   };
 
   return JSON.stringify(data, null, 2);
@@ -154,6 +156,11 @@ function deserializeGameState(json, gameState) {
   // Restore NG+ flag
   gameState.ngPlus = data.ngPlus || false;
 
+  // Restore visibility (fog of war)
+  if (data.visibility) {
+    gameState.visibility = _rleDecode(data.visibility, MAP_WIDTH * MAP_HEIGHT);
+  }
+
   return true;
 }
 
@@ -222,6 +229,46 @@ function listSaves() {
   }
 
   return saves;
+}
+
+/**
+ * RLE-encode a Uint8Array to a compact string: "0:45000,1:3000,2:500"
+ */
+function _rleEncode(arr) {
+  if (!arr || arr.length === 0) return '';
+  const parts = [];
+  let val = arr[0];
+  let count = 1;
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i] === val) {
+      count++;
+    } else {
+      parts.push(`${val}:${count}`);
+      val = arr[i];
+      count = 1;
+    }
+  }
+  parts.push(`${val}:${count}`);
+  return parts.join(',');
+}
+
+/**
+ * RLE-decode a string back to Uint8Array.
+ */
+function _rleDecode(str, expectedSize) {
+  const arr = new Uint8Array(expectedSize);
+  if (!str) return arr;
+  let offset = 0;
+  const parts = str.split(',');
+  for (const part of parts) {
+    const [valStr, countStr] = part.split(':');
+    const val = parseInt(valStr, 10);
+    const count = parseInt(countStr, 10);
+    for (let i = 0; i < count && offset < expectedSize; i++) {
+      arr[offset++] = val;
+    }
+  }
+  return arr;
 }
 
 module.exports = {

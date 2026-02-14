@@ -2,8 +2,8 @@
 
 const { FOV } = require('rot-js');
 const { sattr } = require('../render/tiles');
-const { ST, STEALTH_TILES, generateStealthMap } = require('../stealth/stealth-map');
-const { ALERT, createGuard, updateGuard, getVisionConeTiles } = require('../stealth/guard-ai');
+const { ST, STEALTH_TILES, GUARD_TYPES, generateStealthMap } = require('../stealth/stealth-map');
+const { ALERT, createGuard, updateGuard, getVisionConeTiles, applyNoise } = require('../stealth/guard-ai');
 const { createMeleeState } = require('../combat/melee-state');
 const { applyAction } = require('../world/factions');
 const { getDifficulty } = require('../meta/legacy');
@@ -56,6 +56,9 @@ class StealthMode {
     this.detectedGuard = null;
     this.isHiding = false;
     this.barrelMsgCooldown = 0;
+    this.stones = 3;
+    this.lastMoveDir = { dx: 0, dy: 1 }; // default facing south
+    this.objFlashTimer = 0;
   }
 
   enter(gameState) {
@@ -75,6 +78,8 @@ class StealthMode {
       this.visible = s.visible;
       this.explored = s.explored;
       this.isHiding = s.isHiding || false;
+      this.stones = s.stones !== undefined ? s.stones : 3;
+      this.lastMoveDir = s.lastMoveDir || { dx: 0, dy: 1 };
       this.phase = 'stealth';
 
       // Rebuild FOV
@@ -130,7 +135,7 @@ class StealthMode {
 
     const templateId = info.templateId || 'fort';
     const seed = info.seed || Date.now();
-    this.map = generateStealthMap(templateId, seed);
+    this.map = generateStealthMap(templateId, seed, { difficulty: this.gameState.difficulty });
 
     this.playerX = this.map.spawn.x;
     this.playerY = this.map.spawn.y;
@@ -163,6 +168,9 @@ class StealthMode {
     this.detectedGuard = null;
     this.isHiding = false;
     this.barrelMsgCooldown = 0;
+    this.stones = 3;
+    this.lastMoveDir = { dx: 0, dy: 1 };
+    this.objFlashTimer = 0;
     this.message = `Infiltrating the ${this.map.name}. Stay hidden.`;
     this.messageTimer = 4.0;
   }
@@ -195,12 +203,13 @@ class StealthMode {
 
     // Barrel message cooldown
     if (this.barrelMsgCooldown > 0) this.barrelMsgCooldown -= dt;
+    if (this.objFlashTimer > 0) this.objFlashTimer -= dt;
 
     // Update guards (apply difficulty speed mult)
     const moveInterval = 0.5 / getDifficulty(this.gameState).guardSpeedMult;
     for (const guard of this.guards) {
       guard.moveInterval = moveInterval;
-      const result = updateGuard(guard, this.playerX, this.playerY, this.map, dt, this.guards, this.isHiding);
+      const result = updateGuard(guard, this.playerX, this.playerY, this.map, dt, this.guards, this.isHiding, this.map.torches);
       if (result === 'combat') {
         this.isHiding = false;
         this.detectedGuard = guard;
@@ -237,6 +246,9 @@ class StealthMode {
 
     // Render player
     this._renderPlayer(screen);
+
+    // Suspicion indicator — pulsing ? when any guard is building suspicion
+    this._renderSuspicionIndicator(screen);
 
     // Render HUD
     this._renderHUD(screen);
@@ -276,7 +288,13 @@ class StealthMode {
 
     const dir = dirMap[key];
     if (dir) {
+      this.lastMoveDir = dir;
       this._move(dir.dx, dir.dy);
+      return;
+    }
+
+    if (key === 'g') {
+      this._throwStone();
       return;
     }
 
@@ -335,8 +353,8 @@ class StealthMode {
       return;
     }
 
-    // Enter barrel — scan 4 cardinal neighbors
-    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    // Enter barrel — scan 8 neighbors (cardinal + diagonal)
+    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]];
     for (const [dx, dy] of dirs) {
       const bx = this.playerX + dx;
       const by = this.playerY + dy;
@@ -361,6 +379,60 @@ class StealthMode {
     this.messageTimer = 2.0;
   }
 
+  _throwStone() {
+    if (this.stones <= 0) {
+      this.message = 'No stones left!';
+      this.messageTimer = 2.0;
+      return;
+    }
+    if (this.isHiding) {
+      this.message = 'Cannot throw while hiding!';
+      this.messageTimer = 2.0;
+      return;
+    }
+
+    // Stone lands 4-6 tiles in last movement direction, on nearest floor tile
+    const range = 4 + Math.floor(Math.random() * 3);
+    let landX = this.playerX + this.lastMoveDir.dx * range;
+    let landY = this.playerY + this.lastMoveDir.dy * range;
+
+    // Clamp to map bounds
+    landX = Math.max(1, Math.min(this.map.width - 2, landX));
+    landY = Math.max(1, Math.min(this.map.height - 2, landY));
+
+    // Find nearest floor tile if landing tile isn't walkable
+    if (!this._isFloor(landX, landY)) {
+      let found = false;
+      for (let r = 1; r <= 3 && !found; r++) {
+        for (let dy = -r; dy <= r && !found; dy++) {
+          for (let dx = -r; dx <= r && !found; dx++) {
+            if (this._isFloor(landX + dx, landY + dy)) {
+              landX += dx;
+              landY += dy;
+              found = true;
+            }
+          }
+        }
+      }
+      if (!found) {
+        this.message = 'No clear spot to throw!';
+        this.messageTimer = 2.0;
+        return;
+      }
+    }
+
+    this.stones--;
+    applyNoise(this.guards, landX, landY, 8);
+    this.message = `Stone thrown! (${this.stones} left)`;
+    this.messageTimer = 2.5;
+  }
+
+  _isFloor(x, y) {
+    if (x < 0 || x >= this.map.width || y < 0 || y >= this.map.height) return false;
+    const tile = this.map.tiles[y * this.map.width + x];
+    return STEALTH_TILES[tile] && STEALTH_TILES[tile].passable;
+  }
+
   _interact() {
     const tile = this.map.tiles[this.playerY * this.map.width + this.playerX];
 
@@ -370,6 +442,7 @@ class StealthMode {
         if (obj.x === this.playerX && obj.y === this.playerY && !obj.completed) {
           obj.completed = true;
           this.objectivesCompleted++;
+          this.objFlashTimer = 1.0;
           this.map.tiles[this.playerY * this.map.width + this.playerX] = ST.STONE_FLOOR;
           this.message = `${obj.label} - Done! (${this.objectivesCompleted}/${this.objectivesTotal})`;
           this.messageTimer = 3.0;
@@ -408,15 +481,14 @@ class StealthMode {
       visible: this.visible,
       explored: this.explored,
       isHiding: this.isHiding,
+      stones: this.stones,
+      lastMoveDir: this.lastMoveDir,
     };
 
-    const override = {
-      name: 'Fort Guard',
-      hp: 70,
-      strength: 9,
-      agility: 7,
-      aiStyle: 'defensive',
-    };
+    // Look up guard type for melee stats
+    const guardType = this.detectedGuard ? this.detectedGuard.guardType : 'patrol';
+    const typeDef = GUARD_TYPES[guardType] || GUARD_TYPES.patrol;
+    const override = { ...typeDef.melee };
 
     this.gameState.melee = createMeleeState(this.gameState, 'stealth_fight', override);
     this.stateMachine.transition('MELEE', this.gameState);
@@ -539,8 +611,26 @@ class StealthMode {
         const def = STEALTH_TILES[tileType];
 
         if (isVisible) {
-          row[sx][0] = def ? def.attr : 0;
-          row[sx][1] = def ? def.ch : '?';
+          // Torch glow: warm amber tint on floor tiles within 2 of torches
+          if (def && tileType === ST.STONE_FLOOR && this.map.torches) {
+            let nearTorch = false;
+            for (const torch of this.map.torches) {
+              if (Math.abs(mx - torch.x) + Math.abs(my - torch.y) <= 2) {
+                nearTorch = true;
+                break;
+              }
+            }
+            if (nearTorch) {
+              row[sx][0] = sattr(178, 94); // warm amber glow
+              row[sx][1] = def.ch;
+            } else {
+              row[sx][0] = def.attr;
+              row[sx][1] = def.ch;
+            }
+          } else {
+            row[sx][0] = def ? def.attr : 0;
+            row[sx][1] = def ? def.ch : '?';
+          }
         } else if (isExplored) {
           row[sx][0] = sattr(237, 233);
           row[sx][1] = def ? def.ch : ' ';
@@ -615,7 +705,7 @@ class StealthMode {
         : sattr(160, 236);
 
       row[sx][0] = guardAttr;
-      row[sx][1] = 'G';
+      row[sx][1] = guard.ch || 'G';
 
       // Alert indicator above
       const indicatorChar = ALERT_CHARS[guard.alertState];
@@ -645,6 +735,25 @@ class StealthMode {
       row[sx][0] = PLAYER_ATTR;
       row[sx][1] = PLAYER_CH;
     }
+  }
+
+  _renderSuspicionIndicator(screen) {
+    // Show pulsing ? when any patrol guard has suspicion building
+    const anySuspicion = this.guards.some(g =>
+      g.alive && g.alertState === ALERT.PATROL && g.suspicionTimer > 0
+    );
+    if (!anySuspicion) return;
+
+    const centerX = Math.floor(this.viewW / 2);
+    const row = screen.lines[0];
+    if (!row || centerX >= row.length) return;
+
+    // Pulse between bright and dim amber
+    const pulse = Math.floor(Date.now() / 300) % 2 === 0;
+    const attr = pulse ? sattr(178, 233) : sattr(136, 233);
+    row[centerX][0] = attr;
+    row[centerX][1] = '?';
+    row.dirty = true;
   }
 
   _renderHUD(screen) {
@@ -685,10 +794,21 @@ class StealthMode {
     if (maxAlert === 1) { alertLabel = 'CAUTION'; alertAttr = sattr(178, 233); }
     if (maxAlert === 2) { alertLabel = 'DANGER';  alertAttr = sattr(160, 233); }
 
+    const objAttr = this.objFlashTimer > 0 ? sattr(226, 233) : hudAttr;
     const objStr = `Objectives: ${this.objectivesCompleted}/${this.objectivesTotal}`;
     const barrelKey = this.isHiding ? 'H: Exit' : 'H: Barrel';
-    const line1 = ` STEALTH  |  ${objStr}  |  Arrows: Move  Enter: Interact  ${barrelKey}  Q: Abort`;
-    this._writeHudText(screen, baseY + 1, 0, line1, hudAttr);
+    const stoneStr = `G: Stone(${this.stones})`;
+    const line1 = ` STEALTH  |  ${objStr}  |  Arrows: Move  Enter: Interact  ${barrelKey}  ${stoneStr}  Q: Abort`;
+    // Write HUD with objective flash highlight
+    const objStart = line1.indexOf('Objectives:');
+    const objEnd = objStart + objStr.length;
+    if (this.objFlashTimer > 0 && objStart >= 0) {
+      this._writeHudText(screen, baseY + 1, 0, line1.substring(0, objStart), hudAttr);
+      this._writeHudText(screen, baseY + 1, objStart, objStr, objAttr);
+      this._writeHudText(screen, baseY + 1, objEnd, line1.substring(objEnd), hudAttr);
+    } else {
+      this._writeHudText(screen, baseY + 1, 0, line1, hudAttr);
+    }
 
     // Alert status + barrel indicator
     const barrelTag = this.isHiding ? '[BARREL] ' : '';

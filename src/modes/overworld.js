@@ -70,8 +70,11 @@ class OverworldMode {
     this.gameState = gameState;
     const { ship } = gameState;
 
-    // Init visibility map
-    this.visibility = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
+    // Init visibility map — persist across mode changes on gameState
+    if (!gameState.visibility) {
+      gameState.visibility = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
+    }
+    this.visibility = gameState.visibility;
 
     // Create FOV calculator
     const self = this;

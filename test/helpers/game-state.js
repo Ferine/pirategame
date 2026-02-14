@@ -56,6 +56,7 @@ function createTestGameState(overrides = {}) {
     meleeResult: null,
     boardingNpcId: null,
     stealthInfo: null,
+    visibility: null,
     campaign: createCampaignState(),
     crtEnabled: false,
     stats: createStats(),

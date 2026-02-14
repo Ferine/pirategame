@@ -375,6 +375,24 @@ test/
 
 **Files:** `world/helmsman.js` (new), `world/helmsman-ui.js` (new), `modes/overworld.js`, `engine/input.js`, `render/hud.js`, `meta/captains-log.js`
 
+### Phase 23: Stealth Overhaul & Fog of War Persistence — COMPLETE
+
+- [x] **Seeded template randomization**: LCG RNG from seed — barrel positions nudged ±1, guard facing randomized, objective labels shuffled
+- [x] **3 guard types**: Patrol (G, vision 7, 0.5s), Scout (S, vision 5, 0.35s), Captain (C, vision 9, 0.6s) — each with unique melee stats
+- [x] **Guard type assignment**: First guard is captain (when ≥3), rest alternate patrol/scout
+- [x] **Hard difficulty extra guard**: Spawns 1 additional scout at random floor tile far from spawn/exit
+- [x] **Guard search behavior**: Alert guards reaching last-known position generate 3 search waypoints, patrol them for 5s before decaying
+- [x] **Stone throw distraction**: Press G to throw stone (3 per mission), lands 4-6 tiles in last move direction, creates noise (Manhattan 8) alerting nearby guards
+- [x] **Torch light zones**: Player within Manhattan 2 of torch gives guards +2 vision range; warm amber glow rendered on nearby floor tiles
+- [x] **8-directional barrel hiding**: Barrel scan expanded from 4 cardinal to 8 directions (includes diagonals)
+- [x] **Suspicion indicator**: Pulsing `?` at top of screen when any patrol guard is building suspicion
+- [x] **Objective flash**: HUD objectives counter highlights gold for 1s after completing an objective
+- [x] **Guard noise system**: `applyNoise()` function — all guards in range become suspicious and move toward noise location
+- [x] **Fog of war persistence**: Visibility array stored on `gameState` instead of mode instance, survives mode transitions
+- [x] **Visibility serialization**: RLE encode/decode in save-load.js — compact "val:count" pairs for 60K tile array
+
+**Files:** `stealth/stealth-map.js`, `stealth/guard-ai.js`, `modes/stealth.js`, `engine/input.js`, `modes/overworld.js`, `engine/save-load.js`
+
 ---
 
 ## Current File Structure

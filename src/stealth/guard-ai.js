@@ -1,6 +1,6 @@
 'use strict';
 
-const { ST, STEALTH_TILES } = require('./stealth-map');
+const { ST, STEALTH_TILES, GUARD_TYPES } = require('./stealth-map');
 
 // Alert states
 const ALERT = {
@@ -30,21 +30,26 @@ const CASCADE_RANGE = 10;      // Manhattan distance for alert cascade
  * Create a guard entity from a spawn definition.
  */
 function createGuard(spawn) {
+  const typeDef = GUARD_TYPES[spawn.guardType] || GUARD_TYPES.patrol;
   return {
     x: spawn.x,
     y: spawn.y,
     facing: spawn.facing || 4,
-    ch: 'G',
+    guardType: spawn.guardType || 'patrol',
+    ch: typeDef.ch,
     patrol: spawn.waypoints || [],
     patrolIndex: 0,
     moveTimer: 0,
-    moveInterval: 0.5,
+    moveInterval: typeDef.moveInterval,
     alertState: ALERT.PATROL,
     suspicionTimer: 0,
     alertTimer: 0,
     lastKnownPlayerX: -1,
     lastKnownPlayerY: -1,
-    visionRange: VISION_RANGE,
+    visionRange: typeDef.visionRange,
+    cascadeRange: typeDef.cascadeRange,
+    searchWaypoints: [],
+    searchTimer: 0,
     alive: true,
   };
 }
@@ -54,10 +59,10 @@ function createGuard(spawn) {
  * Returns 'combat' if guard reaches combat state, 'barrel_noticed' if
  * a patrolling guard is adjacent to a hiding player, null otherwise.
  */
-function updateGuard(guard, playerX, playerY, map, dt, allGuards, isHiding) {
+function updateGuard(guard, playerX, playerY, map, dt, allGuards, isHiding, torches) {
   if (!guard.alive) return null;
 
-  const canSee = canGuardSeePlayer(guard, playerX, playerY, map, isHiding);
+  const canSee = canGuardSeePlayer(guard, playerX, playerY, map, isHiding, torches);
 
   // Update alert state
   switch (guard.alertState) {
@@ -100,13 +105,28 @@ function updateGuard(guard, playerX, playerY, map, dt, allGuards, isHiding) {
       if (canSee) {
         guard.lastKnownPlayerX = playerX;
         guard.lastKnownPlayerY = playerY;
-        guard.alertTimer = 0; // reset decay
+        guard.alertTimer = 0;
+        guard.searchWaypoints = [];
+        guard.searchTimer = 0;
       } else {
-        guard.alertTimer += dt;
-        if (guard.alertTimer >= ALERT_DECAY) {
-          guard.alertState = ALERT.PATROL;
-          guard.suspicionTimer = 0;
-          guard.alertTimer = 0;
+        // Search behavior: generate waypoints when reaching last-known position
+        if (guard.searchTimer > 0) {
+          guard.searchTimer -= dt;
+          if (guard.searchTimer <= 0) {
+            // Search complete, decay to suspicious then patrol
+            guard.alertState = ALERT.SUSPICIOUS;
+            guard.suspicionTimer = 0;
+            guard.alertTimer = 0;
+            guard.searchWaypoints = [];
+          }
+        } else {
+          guard.alertTimer += dt;
+          if (guard.alertTimer >= ALERT_DECAY) {
+            guard.alertState = ALERT.PATROL;
+            guard.suspicionTimer = 0;
+            guard.alertTimer = 0;
+            guard.searchWaypoints = [];
+          }
         }
       }
       // Check adjacency for combat
@@ -131,8 +151,26 @@ function updateGuard(guard, playerX, playerY, map, dt, allGuards, isHiding) {
       // Face toward last known position
       _faceToward(guard, guard.lastKnownPlayerX, guard.lastKnownPlayerY);
     } else if (guard.alertState === ALERT.ALERT) {
-      // Greedy pathfind toward last known player position
-      _moveToward(guard, guard.lastKnownPlayerX, guard.lastKnownPlayerY, map);
+      if (guard.searchTimer > 0 && guard.searchWaypoints.length > 0) {
+        // Search: move between search waypoints
+        const wp = guard.searchWaypoints[0];
+        if (Math.abs(guard.x - wp.x) <= 1 && Math.abs(guard.y - wp.y) <= 1) {
+          guard.searchWaypoints.shift();
+        } else {
+          _moveToward(guard, wp.x, wp.y, map);
+        }
+      } else if (guard.searchTimer <= 0) {
+        // Move toward last known player position
+        const atTarget = Math.abs(guard.x - guard.lastKnownPlayerX) <= 1
+                      && Math.abs(guard.y - guard.lastKnownPlayerY) <= 1;
+        if (atTarget) {
+          // Arrived at last-known position: start searching
+          guard.searchWaypoints = _generateSearchWaypoints(guard, map);
+          guard.searchTimer = 5.0;
+        } else {
+          _moveToward(guard, guard.lastKnownPlayerX, guard.lastKnownPlayerY, map);
+        }
+      }
     }
   }
 
@@ -149,7 +187,7 @@ function updateGuard(guard, playerX, playerY, map, dt, allGuards, isHiding) {
  * Can guard see the player? Uses vision cone + LOS raycast.
  * If isHiding is true, the player is invisible except to alert/combat guards at dist ≤ 1.
  */
-function canGuardSeePlayer(guard, px, py, map, isHiding) {
+function canGuardSeePlayer(guard, px, py, map, isHiding, torches) {
   const dx = px - guard.x;
   const dy = py - guard.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -166,8 +204,19 @@ function canGuardSeePlayer(guard, px, py, map, isHiding) {
   // Always detect adjacent
   if (dist <= DETECT_ADJACENT) return true;
 
+  // Torch boost: player near torch increases guard effective vision range
+  let effectiveRange = guard.visionRange;
+  if (torches && torches.length > 0) {
+    for (const torch of torches) {
+      if (Math.abs(px - torch.x) + Math.abs(py - torch.y) <= 2) {
+        effectiveRange += 2;
+        break;
+      }
+    }
+  }
+
   // Out of range
-  if (dist > guard.visionRange) return false;
+  if (dist > effectiveRange) return false;
 
   // Check if player is hiding behind cover
   if (isPlayerHiding(px, py, guard.x, guard.y, map)) return false;
@@ -248,10 +297,11 @@ function hasLineOfSight(x0, y0, x1, y1, map) {
  * Cascade alert to nearby guards (Manhattan distance).
  */
 function cascadeAlert(guard, allGuards) {
+  const range = guard.cascadeRange || CASCADE_RANGE;
   for (const other of allGuards) {
     if (other === guard || !other.alive) continue;
     const dist = Math.abs(other.x - guard.x) + Math.abs(other.y - guard.y);
-    if (dist <= CASCADE_RANGE && other.alertState === ALERT.PATROL) {
+    if (dist <= range && other.alertState === ALERT.PATROL) {
       other.alertState = ALERT.SUSPICIOUS;
       other.lastKnownPlayerX = guard.lastKnownPlayerX;
       other.lastKnownPlayerY = guard.lastKnownPlayerY;
@@ -362,6 +412,50 @@ function _canWalk(x, y, map) {
   return def && def.passable;
 }
 
+/**
+ * Generate 3 random nearby floor tiles as search waypoints.
+ */
+function _generateSearchWaypoints(guard, map) {
+  const waypoints = [];
+  const offsets = [
+    [-2, -2], [-2, 0], [-2, 2], [0, -2], [0, 2], [2, -2], [2, 0], [2, 2],
+    [-3, -1], [-3, 1], [3, -1], [3, 1], [-1, -3], [1, -3], [-1, 3], [1, 3],
+  ];
+  // Shuffle offsets
+  for (let i = offsets.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [offsets[i], offsets[j]] = [offsets[j], offsets[i]];
+  }
+  for (const [ox, oy] of offsets) {
+    if (waypoints.length >= 3) break;
+    const wx = guard.x + ox;
+    const wy = guard.y + oy;
+    if (_canWalk(wx, wy, map)) {
+      waypoints.push({ x: wx, y: wy });
+    }
+  }
+  return waypoints;
+}
+
+/**
+ * Apply a noise event — all guards within range become suspicious and move toward noise.
+ */
+function applyNoise(guards, noiseX, noiseY, range) {
+  for (const guard of guards) {
+    if (!guard.alive) continue;
+    const dist = Math.abs(guard.x - noiseX) + Math.abs(guard.y - noiseY);
+    if (dist <= range) {
+      guard.lastKnownPlayerX = noiseX;
+      guard.lastKnownPlayerY = noiseY;
+      if (guard.alertState === ALERT.PATROL) {
+        guard.alertState = ALERT.SUSPICIOUS;
+        guard.suspicionTimer = 0;
+        guard.alertTimer = 0;
+      }
+    }
+  }
+}
+
 module.exports = {
   ALERT,
   createGuard,
@@ -370,4 +464,5 @@ module.exports = {
   isPlayerHiding,
   cascadeAlert,
   getVisionConeTiles,
+  applyNoise,
 };

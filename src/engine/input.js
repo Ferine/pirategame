@@ -83,6 +83,11 @@ class InputHandler {
       this.stateMachine.handleInput('h');
     });
 
+    // G for throw stone (stealth)
+    this.screen.key(['g'], () => {
+      this.stateMachine.handleInput('g');
+    });
+
     // Q to quit
     this.screen.key(['q'], () => {
       this.stateMachine.handleInput('q');

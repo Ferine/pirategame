@@ -261,11 +261,12 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 ### Automated Test Suite — COMPLETE
 
 - [x] Node.js built-in `node:test` + `node:assert/strict` — zero new dependencies
-- [x] `npm test` runs all 330 tests via `node --test test/**/*.test.js`
+- [x] `npm test` runs all 386 tests via `node --test test/**/*.test.js`
 - [x] Seeded deterministic random helper for reproducible test runs
 - [x] Test game-state factory (full gameState without map/screen)
-- [x] **Scenario tests (18 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy, campaign, dialog, achievements, legacy, captains-log
+- [x] **Scenario tests (21 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy, campaign, dialog, achievements, legacy, captains-log, npc-behavior, sea-objects, encounter-outcomes
 - [x] **Integration tests (5 files):** trade voyage profit, combat→boarding→ship capture, crew mutiny cascade, quest delivery turn-in, faction cascade port lockout
+- [x] **Playthrough tests (1 file, 6 suites):** full campaign hero ending, pirate king ending, trade & upgrade loop, combat gauntlet, new game plus cycle, survival run hull management
 
 **Files:**
 ```
@@ -292,12 +293,16 @@ test/
     achievements.test.js   — Achievement definitions, thresholds, check logic
     legacy.test.js         — Stats, mergeStats, difficulty, Hall of Fame, New Game+, cosmetics
     captains-log.test.js   — Log events, flushDay, prose generation, UI state
+    npc-behavior.test.js   — Trade routes, NPC clashes, desperate merchants, cargo
+    sea-objects.test.js    — Spawn, collision, resolve outcomes, sea discoveries
+    encounter-outcomes.test.js — Hail outcomes, weather prefix, effect application
   integration/
     trade-voyage.test.js   — Buy cheap → sell dear → net profit
     combat-capture.test.js — Cannon combat → boarding → ship capture → fleet grows
     crew-mutiny.test.js    — Days at sea → morale decay → desertions → mutiny
     quest-delivery.test.js — Accept quest → stock cargo → arrive → reward
     faction-cascade.test.js— Attack repeatedly → lose port access → pirate rep soars
+    playthrough.test.js    — 6 end-to-end playthrough suites (campaign, trade, combat, NG+)
 ```
 
 ### Phase 18: Convoy & Escort Missions — COMPLETE
@@ -346,6 +351,15 @@ test/
 
 **Files:** `meta/achievements.js`, `meta/legacy.js`, `meta/captains-log.js`, `modes/credits.js`
 
+### Phase 21: Lively Seas — COMPLETE
+
+- [x] **NPC Ship Improvements**: Merchant port-to-port trade routes, desperate battered merchants (15%, fight back), NPC cargo & gold at spawn, NPC-to-NPC clashes (pirate vs merchant/english/danish), MAX_NPC_SHIPS raised to 16, rebalanced spawn weights (50% merchant, 20% english, 15% pirate, 15% danish)
+- [x] **Sea Discoveries**: 6 floating object types (wreckage, floating cargo, distress, derelict, debris field, message bottle) — spawn 10-25 tiles from player, weighted random outcomes (gold, cargo, hull damage, crew buff, pirate ambush, treasure hints, trade tips), captain's log integration
+- [x] **Varied Encounter Outcomes**: Rich hail outcome tables per faction (merchant: trade offer/tip/warning/gift; english: papers check/intel/hostile/pass; danish: friendly/supply/quest hint; pirate: demand/raid offer/black market/threat/intel), inline hail_choose phase for follow-up decisions, weather-based encounter prefix text, NPC cargo display in encounter panel
+- [x] **Active Sailing**: Wind gusts every 15-35s (3-5s duration, sharp direction shift, +50% aligned / -30% misaligned speed), deterministic ocean currents (sine wave pattern, stronger through Helsingor narrows, +30%/-20% speed), sail trim HUD indicator (DEAD/POOR/FAIR/GOOD/GREAT)
+
+**Files:** `world/npc-ships.js`, `world/sea-objects.js` (new), `world/currents.js` (new), `world/encounter-outcomes.js` (new), `modes/overworld.js`, `modes/encounter.js`, `meta/captains-log.js`, `render/hud.js`
+
 ---
 
 ## Current File Structure
@@ -366,8 +380,11 @@ src/
   world/
     map-gen.js          — Simplex noise + channel mask procedural generation
     ports.js            — 9 real Kattegat port locations
-    npc-ships.js        — NPC ship spawning, AI, faction system
+    npc-ships.js        — NPC ship spawning, AI, faction system, trade routes, clashes
     factions.js         — Reputation & faction system (5 factions, tiers, ripple effects)
+    sea-objects.js      — Floating sea discovery system (6 types, spawn/despawn, outcomes)
+    currents.js         — Deterministic ocean currents (sine wave, narrows boost)
+    encounter-outcomes.js — Hail outcome tables, effects, weather prefix
     weather.js          — Weather state machine (clear/fog/rain/storm, effects, biased transitions)
     quests.js           — Contracts and rumors (generation, progression, rewards, turn-in)
     day-night.js        — Day/night cycle (quarters, seasons, moon phases, dimming, sight range)

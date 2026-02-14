@@ -6,6 +6,7 @@ const { createCombatState } = require('../combat/combat-state');
 const { createMeleeState } = require('../combat/melee-state');
 const { GOODS, cargoCount } = require('../economy/goods');
 const { applyAction, getAttackAction, getHailAction } = require('../world/factions');
+const { resolveHailOutcome, applyHailEffect, getWeatherEncounterPrefix } = require('../world/encounter-outcomes');
 
 // Colors
 const BG = sattr(233, 233);
@@ -55,11 +56,14 @@ class EncounterMode {
     this.gameState = gameState;
     this.npc = null;
     this.cursor = 0;
-    this.phase = 'choose';  // 'choose', 'result'
+    this.phase = 'choose';  // 'choose', 'hail_choose', 'result'
     this.resultText = '';
     this.resultTimer = 0;
     this.loot = null;
     this.choices = [];
+    // Hail outcome state
+    this.hailOutcome = null;
+    this.hailCursor = 0;
   }
 
   enter(gameState) {
@@ -70,12 +74,20 @@ class EncounterMode {
     this.resultText = '';
     this.resultTimer = 0;
     this.loot = null;
+    this.hailOutcome = null;
+    this.hailCursor = 0;
 
     // Build active choices — infiltrate only for English
     this.choices = BASE_CHOICES.filter(c => {
       if (c.id === 'infiltrate') return this.npc && this.npc.faction === FACTION.ENGLISH;
       return true;
     });
+
+    // Weather-based encounter flavor prefix
+    this.weatherPrefix = '';
+    if (gameState.weather && gameState.weather.type !== 'clear') {
+      this.weatherPrefix = getWeatherEncounterPrefix(gameState.weather.type);
+    }
 
     // Story encounter flavor text for Act 5 boss
     this.storyFlavorText = null;
@@ -138,8 +150,18 @@ class EncounterMode {
     const stats = `  Hull: ${this.npc.hull}  Crew: ${this.npc.crew}  Masts: ${this.npc.masts}`;
     _writeText(screen, py + 3, px + 3, stats, TEXT_ATTR);
 
-    // Encounter text
-    const flavorText = this.storyFlavorText || ENCOUNTER_TEXT[this.npc.faction] || 'A ship approaches.';
+    // NPC cargo display for merchants/pirates
+    if (this.npc.cargo && Object.keys(this.npc.cargo).length > 0) {
+      const cargoStr = Object.entries(this.npc.cargo).map(([g, q]) => `${q} ${g}`).join(', ');
+      _writeText(screen, py + 4, px + 3, `  Cargo: ${cargoStr}`, sattr(178, 233));
+      if (this.npc.gold) {
+        _writeText(screen, py + 4, px + 3 + cargoStr.length + 12, `  Gold: ${this.npc.gold}`, sattr(226, 233));
+      }
+    }
+
+    // Encounter text with weather prefix
+    const baseFlavorText = this.storyFlavorText || ENCOUNTER_TEXT[this.npc.faction] || 'A ship approaches.';
+    const flavorText = this.weatherPrefix + baseFlavorText;
     _writeWrapped(screen, py + 5, px + 3, panelW - 6, flavorText, TEXT_ATTR);
 
     if (this.phase === 'choose') {
@@ -194,6 +216,37 @@ class EncounterMode {
       _writeText(screen, py + panelH - 2, px + 3,
         ' \u2191\u2193: Choose   Enter/Space: Confirm ', sattr(240, 233));
 
+    } else if (this.phase === 'hail_choose') {
+      // Hail outcome text
+      if (this.hailOutcome) {
+        _writeWrapped(screen, py + 9, px + 3, panelW - 6, this.hailOutcome.text, TEXT_ATTR);
+
+        // Show inline choices
+        if (this.hailOutcome.choices) {
+          const choiceY = py + 12;
+          for (let i = 0; i < this.hailOutcome.choices.length; i++) {
+            const c = this.hailOutcome.choices[i];
+            const isSelected = i === this.hailCursor;
+            const attr = isSelected ? SELECTED : UNSELECTED;
+            const pointer = isSelected ? '\u25B6 ' : '  ';
+
+            if (isSelected) {
+              const row = screen.lines[choiceY + i];
+              if (row) {
+                for (let x = px + 2; x < px + panelW - 2 && x < row.length; x++) {
+                  row[x][0] = SELECTED;
+                  row[x][1] = ' ';
+                }
+              }
+            }
+            _writeText(screen, choiceY + i, px + 6, pointer + c.label, attr);
+          }
+        }
+      }
+
+      _writeText(screen, py + panelH - 2, px + 3,
+        ' \u2191\u2193: Choose   Enter/Space: Confirm ', sattr(240, 233));
+
     } else if (this.phase === 'result') {
       // Result text
       _writeWrapped(screen, py + 9, px + 3, panelW - 6, this.resultText, TEXT_ATTR);
@@ -214,6 +267,22 @@ class EncounterMode {
 
   handleInput(key) {
     if (this.phase === 'result') return;
+
+    if (this.phase === 'hail_choose') {
+      if (key === 'up') {
+        this.hailCursor = Math.max(0, this.hailCursor - 1);
+        return;
+      }
+      if (key === 'down' && this.hailOutcome && this.hailOutcome.choices) {
+        this.hailCursor = Math.min(this.hailOutcome.choices.length - 1, this.hailCursor + 1);
+        return;
+      }
+      if (key === 'enter' || key === 'space') {
+        this._resolveHailChoice();
+        return;
+      }
+      return;
+    }
 
     if (key === 'up') {
       this.cursor = Math.max(0, this.cursor - 1);
@@ -258,20 +327,57 @@ class EncounterMode {
   }
 
   _doHail() {
-    this.phase = 'result';
-    this.resultText = HAIL_TEXT[this.npc.faction] || 'They nod and sail on.';
-    this.resultTimer = 3.0;
+    // Use new varied outcome system
+    const outcome = resolveHailOutcome(this.npc.faction);
+    this.hailOutcome = outcome;
 
-    // Reputation effect
+    // Reputation effect for hailing
     if (this.gameState.reputation) {
       const actionId = getHailAction(this.npc.faction);
       if (actionId) {
-        const changes = applyAction(this.gameState.reputation, actionId);
-        if (changes.length) {
-          this.resultText += ' (' + changes.join(', ') + ')';
-        }
+        applyAction(this.gameState.reputation, actionId);
       }
     }
+
+    if (outcome.choices) {
+      // Show inline choices
+      this.phase = 'hail_choose';
+      this.hailCursor = 0;
+    } else {
+      // No choices — apply effect and show result
+      const applied = applyHailEffect(outcome.effect, null, this.gameState);
+      this.phase = 'result';
+      this.resultText = outcome.text;
+      if (applied.text) this.resultText += ' ' + applied.text;
+      if (applied.repChanges.length) {
+        this.resultText += ' (' + applied.repChanges.join(', ') + ')';
+      }
+      this.resultTimer = 3.5;
+
+      // Check for forced combat
+      if (outcome.effect && outcome.effect.type === 'forced_combat') {
+        this._doAttack();
+        return;
+      }
+
+      // Remove from overworld
+      if (this.gameState.npcShips) {
+        removeNPCShip(this.gameState.npcShips, this.npc.id);
+      }
+    }
+  }
+
+  _resolveHailChoice() {
+    if (!this.hailOutcome) return;
+    const choiceId = this.hailOutcome.choices[this.hailCursor].id;
+    const applied = applyHailEffect(this.hailOutcome.effect, choiceId, this.gameState);
+
+    this.phase = 'result';
+    this.resultText = applied.text;
+    if (applied.repChanges.length) {
+      this.resultText += ' (' + applied.repChanges.join(', ') + ')';
+    }
+    this.resultTimer = 3.5;
 
     // Remove from overworld
     if (this.gameState.npcShips) {

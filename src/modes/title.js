@@ -12,6 +12,7 @@ const { createEventsState } = require('../world/events');
 const { createFleetState } = require('../fleet/fleet');
 const { createCampaignState } = require('../story/campaign');
 const { createLogState } = require('../meta/captains-log');
+const { sattr } = require('../render/tiles');
 
 const BASE_MENU = ['Continue', 'New Game', 'Load Game', 'Quit'];
 const DIFFICULTY_OPTIONS = ['easy', 'normal', 'hard'];
@@ -32,6 +33,7 @@ class TitleMode {
     this.hallOfFame = [];
     this.waveFrame = 0;
     this.waveTimer = 0;
+    this._bgAttr = sattr(233, 233); // dark navy background
   }
 
   enter() {
@@ -104,6 +106,17 @@ class TitleMode {
   }
 
   render(screen) {
+    // Clear screen buffer to avoid stale data from loading box / other modes
+    for (let sy = 0; sy < screen.height; sy++) {
+      const row = screen.lines[sy];
+      if (!row) continue;
+      for (let sx = 0; sx < row.length; sx++) {
+        row[sx][0] = this._bgAttr;
+        row[sx][1] = ' ';
+      }
+      row.dirty = true;
+    }
+
     if (this.box && !this.box.screen) {
       screen.append(this.box);
     }

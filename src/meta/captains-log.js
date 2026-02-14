@@ -52,6 +52,14 @@ const TEMPLATES = {
   convoy_complete: [
     'Escorted the convoy safely to its destination. The merchants were grateful.',
   ],
+  sea_discovery: [
+    'Came upon {type} adrift in the Kattegat. The sea gives and takes in equal measure.',
+    'Spotted {type} floating upon the waves. We investigated with due caution.',
+    'The lookout cried out — {type} spotted off the bow.',
+  ],
+  npc_clash: [
+    'Witnessed a clash between ships on the horizon. The sea is not safe for anyone.',
+  ],
 };
 
 function _pickTemplate(type) {

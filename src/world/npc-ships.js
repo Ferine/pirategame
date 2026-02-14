@@ -40,7 +40,7 @@ const FACTION_TEMPLATES = {
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
 const DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1];
 
-const MAX_NPC_SHIPS = 12;
+const MAX_NPC_SHIPS = 16;
 const SPAWN_DISTANCE = 30;     // min distance from player to spawn
 const DESPAWN_DISTANCE = 80;   // remove ships this far from player
 const MOVE_INTERVAL = 0.4;     // seconds between NPC move ticks
@@ -53,7 +53,7 @@ function createNPCShips(gameState) {
   const map = gameState.map;
 
   // Spawn initial fleet
-  _spawnShips(ships, map, gameState.ship.x, gameState.ship.y, 8);
+  _spawnShips(ships, map, gameState.ship.x, gameState.ship.y, 8, gameState);
 
   return ships;
 }
@@ -61,18 +61,49 @@ function createNPCShips(gameState) {
 /**
  * Spawn ships at water tiles within a ring around the player.
  */
-function _spawnShips(ships, map, px, py, count) {
-  const factions = [FACTION.ENGLISH, FACTION.DANISH, FACTION.MERCHANT, FACTION.MERCHANT,
-                    FACTION.MERCHANT, FACTION.MERCHANT, FACTION.PIRATE, FACTION.MERCHANT];
+function _pickSpawnFaction() {
+  const roll = Math.random();
+  if (roll < 0.50) return FACTION.MERCHANT;
+  if (roll < 0.70) return FACTION.ENGLISH;
+  if (roll < 0.85) return FACTION.PIRATE;
+  return FACTION.DANISH;
+}
 
+function _spawnShips(ships, map, px, py, count, gameState) {
   for (let i = 0; i < count && ships.length < MAX_NPC_SHIPS; i++) {
-    const faction = factions[i % factions.length];
-    const ship = _spawnOneShip(map, px, py, faction);
+    const faction = _pickSpawnFaction();
+    const ship = _spawnOneShip(map, px, py, faction, gameState);
     if (ship) ships.push(ship);
   }
 }
 
-function _spawnOneShip(map, px, py, faction) {
+// Goods IDs for NPC cargo generation
+const CARGO_GOODS = ['cod', 'herring', 'grain', 'timber', 'iron', 'gunpowder', 'silk', 'spices'];
+
+function _generateNPCCargo(faction) {
+  const cargo = {};
+  let gold = 0;
+  if (faction === FACTION.MERCHANT) {
+    // 2-4 random goods
+    const count = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const good = CARGO_GOODS[Math.floor(Math.random() * CARGO_GOODS.length)];
+      cargo[good] = (cargo[good] || 0) + 1 + Math.floor(Math.random() * 3);
+    }
+    gold = 20 + Math.floor(Math.random() * 21);
+  } else if (faction === FACTION.PIRATE) {
+    // 1-2 goods
+    const count = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      const good = CARGO_GOODS[Math.floor(Math.random() * CARGO_GOODS.length)];
+      cargo[good] = (cargo[good] || 0) + 1 + Math.floor(Math.random() * 2);
+    }
+    gold = 30 + Math.floor(Math.random() * 31);
+  }
+  return { cargo, gold };
+}
+
+function _spawnOneShip(map, px, py, faction, gameState) {
   // Try random positions in a ring around player
   for (let attempt = 0; attempt < 50; attempt++) {
     const angle = Math.random() * Math.PI * 2;
@@ -90,23 +121,61 @@ function _spawnOneShip(map, px, py, faction) {
     const template = FACTION_TEMPLATES[faction];
     const names = FACTION_NAMES[faction];
 
+    // Desperate merchant: 15% chance, battered hull, will fight back
+    let name = names[Math.floor(Math.random() * names.length)];
+    let hull = template.hull;
+    let aggression = template.aggression;
+    let desperate = false;
+    if (faction === FACTION.MERCHANT && Math.random() < 0.15) {
+      desperate = true;
+      hull = Math.round(template.hull * 0.6);
+      aggression = 0.4;
+      name = 'Battered ' + name;
+    }
+
+    // NPC cargo
+    const { cargo, gold } = _generateNPCCargo(faction);
+
+    // Merchant trade routes: pick 2 random ports as waypoints
+    let tradeRoute = null;
+    let tradeRouteIdx = 0;
+    if (faction === FACTION.MERCHANT && gameState && gameState.map && gameState.map.ports) {
+      const ports = gameState.map.ports;
+      if (ports.length >= 2) {
+        const a = Math.floor(Math.random() * ports.length);
+        let b = Math.floor(Math.random() * (ports.length - 1));
+        if (b >= a) b++;
+        tradeRoute = [
+          { x: ports[a].actualX, y: ports[a].actualY },
+          { x: ports[b].actualX, y: ports[b].actualY },
+        ];
+        tradeRouteIdx = 0;
+      }
+    }
+
     return {
       id: Math.random().toString(36).slice(2, 8),
-      name: names[Math.floor(Math.random() * names.length)],
+      name,
       faction,
       x, y,
       direction: Math.floor(Math.random() * 8),
-      hull: template.hull,
+      hull,
       maxHull: template.hull,
       crew: template.crew,
       maxCrew: template.crew,
       masts: template.masts,
       speed: template.speed,
-      aggression: template.aggression,
+      aggression,
       moveAccum: 0,
+      desperate,
+      cargo,
+      gold,
       // AI state
       aiTarget: null,     // {x,y} waypoint
       aiTimer: 0,         // seconds until next waypoint change
+      // Trade route (merchants)
+      tradeRoute,
+      tradeRouteIdx,
     };
   }
   return null;
@@ -134,10 +203,17 @@ function updateNPCShips(ships, gameState, dt) {
     }
   }
 
+  // NPC-to-NPC clashes
+  const clashReports = _resolveNPCClashes(ships);
+  if (clashReports.length > 0 && gameState.noticeQueue) {
+    for (const report of clashReports) {
+      gameState.noticeQueue.push({ message: report, duration: 4.0 });
+    }
+  }
+
   // Spawn replacements
   if (ships.length < MAX_NPC_SHIPS) {
     const needed = Math.min(2, MAX_NPC_SHIPS - ships.length);
-    const factions = [FACTION.MERCHANT, FACTION.ENGLISH, FACTION.PIRATE, FACTION.DANISH];
 
     // Check for active naval blockade event
     const hasBlockade = gameState.events && gameState.events.active &&
@@ -148,9 +224,9 @@ function updateNPCShips(ships, gameState, dt) {
       if (hasBlockade && Math.random() < 0.6) {
         faction = FACTION.ENGLISH;
       } else {
-        faction = factions[Math.floor(Math.random() * factions.length)];
+        faction = _pickSpawnFaction();
       }
-      const newShip = _spawnOneShip(map, player.x, player.y, faction);
+      const newShip = _spawnOneShip(map, player.x, player.y, faction, gameState);
       if (newShip) ships.push(newShip);
     }
   }
@@ -185,12 +261,27 @@ function _updateNPCAI(npc, player, wind, dt, reputation) {
 
     // Pick new waypoint
     if (npc.faction === FACTION.MERCHANT) {
-      // Merchants wander toward random offsets
-      npc.aiTarget = {
-        x: npc.x + (Math.random() * 40 - 20),
-        y: npc.y + (Math.random() * 40 - 20),
-      };
-      npc.aiTimer = 5 + Math.random() * 10;
+      if (npc.tradeRoute && npc.tradeRoute.length >= 2) {
+        // Navigate toward current trade route waypoint
+        const wp = npc.tradeRoute[npc.tradeRouteIdx];
+        const dx = wp.x - npc.x;
+        const dy = wp.y - npc.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 5) {
+          // Arrived at waypoint, advance to next
+          npc.tradeRouteIdx = (npc.tradeRouteIdx + 1) % npc.tradeRoute.length;
+        }
+        const nextWp = npc.tradeRoute[npc.tradeRouteIdx];
+        npc.aiTarget = { x: nextWp.x, y: nextWp.y };
+        npc.aiTimer = 3 + Math.random() * 5;
+      } else {
+        // Fallback: wander randomly
+        npc.aiTarget = {
+          x: npc.x + (Math.random() * 40 - 20),
+          y: npc.y + (Math.random() * 40 - 20),
+        };
+        npc.aiTimer = 5 + Math.random() * 10;
+      }
     } else if (npc.faction === FACTION.ENGLISH || npc.faction === FACTION.PIRATE) {
       // Patrol toward player if close enough, else wander
       // Detection range scales with aggression modifier
@@ -283,6 +374,58 @@ function _moveNPC(npc, map, wind, dt) {
   }
 }
 
+// Hostile faction pairs for NPC-to-NPC combat
+const HOSTILE_PAIRS = [
+  [FACTION.PIRATE, FACTION.MERCHANT],
+  [FACTION.PIRATE, FACTION.ENGLISH],
+  [FACTION.PIRATE, FACTION.DANISH],
+];
+
+function _areHostile(a, b) {
+  for (const [f1, f2] of HOSTILE_PAIRS) {
+    if ((a === f1 && b === f2) || (a === f2 && b === f1)) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve NPC-to-NPC clashes: when hostile ships are within 3 tiles, the weaker is removed.
+ * Returns array of report strings for notices.
+ */
+function _resolveNPCClashes(ships) {
+  const reports = [];
+  const toRemove = new Set();
+
+  for (let i = 0; i < ships.length; i++) {
+    if (toRemove.has(i)) continue;
+    for (let j = i + 1; j < ships.length; j++) {
+      if (toRemove.has(j)) continue;
+      const a = ships[i];
+      const b = ships[j];
+      if (!_areHostile(a.faction, b.faction)) continue;
+
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      if (dx * dx + dy * dy > 9) continue; // >3 tiles apart
+
+      // Weaker ship (lower hull) loses
+      const loser = a.hull <= b.hull ? i : j;
+      const winner = loser === i ? j : i;
+      ships[winner].hull = Math.max(1, ships[winner].hull - 15);
+      toRemove.add(loser);
+      reports.push(`${ships[winner].name} sank the ${ships[loser].name}!`);
+    }
+  }
+
+  // Remove losers (reverse order to preserve indices)
+  const indices = [...toRemove].sort((a, b) => b - a);
+  for (const idx of indices) {
+    ships.splice(idx, 1);
+  }
+
+  return reports;
+}
+
 /**
  * Check if any NPC ship is adjacent to player. Returns the NPC or null.
  */
@@ -326,8 +469,12 @@ module.exports = {
   FACTION,
   FACTION_COLORS,
   FACTION_TEMPLATES,
+  MAX_NPC_SHIPS,
   createNPCShips,
   updateNPCShips,
   checkEncounter,
   removeNPCShip,
+  _resolveNPCClashes,
+  _pickSpawnFaction,
+  _generateNPCCargo,
 };

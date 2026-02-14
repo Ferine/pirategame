@@ -46,6 +46,12 @@ function updateHUD(box, gameState) {
   const shipDir = COMPASS_NAMES[ship.direction];
   const speed = (gameState.currentSpeed || 0).toFixed(1);
 
+  // Sail trim quality based on ship-vs-wind angle
+  let diff = Math.abs(ship.direction - wind.direction);
+  if (diff > 4) diff = 8 - diff;
+  const TRIM_LABELS = ['DEAD', 'POOR', 'GREAT', 'GOOD', 'FAIR'];
+  const trimLabel = TRIM_LABELS[diff] || 'FAIR';
+
   // Weather display
   let weatherStr = '';
   if (gameState.weather) {
@@ -73,7 +79,7 @@ function updateHUD(box, gameState) {
     convoyStr = `    CONVOY: ${alive}/${total} ${formation} ${timer}s`;
   }
 
-  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Speed: ${speed} kn${weatherStr}${timeStr}${convoyStr}`;
+  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Trim: ${trimLabel}    Speed: ${speed} kn${weatherStr}${timeStr}${convoyStr}`;
   const defaultLine2 = `  Pos: (${ship.x}, ${ship.y})    Hull: ${ship.hull}/${ship.maxHull}    ${ship.name}`;
   const notice = (gameState.hudMessage || '').replace(/[{}]/g, '').trim();
   const line2 = notice ? `  Notice: ${notice}` : defaultLine2;

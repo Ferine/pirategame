@@ -30,7 +30,7 @@ function createJournalState(campaign) {
  * Returns true if consumed, false to close.
  */
 function journalHandleInput(key, ui, campaign) {
-  if (key === 'q' || key === 'j') {
+  if (key === 'q' || key === 'j' || key === 'enter') {
     return false; // close
   }
 
@@ -136,7 +136,7 @@ function journalRender(screen, ui, campaign) {
   }
 
   // Help
-  const help = ' Left/Right: Tabs  Up/Down: Scroll  J/Q: Close ';
+  const help = ' Left/Right: Tabs  Up/Down: Scroll  Enter/J/Q: Close ';
   _writeText(screen, py + panelH - 2, px + Math.floor((panelW - help.length) / 2), help, HELP);
 }
 

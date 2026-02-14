@@ -176,7 +176,7 @@ class PowerGaugeMode {
 
     // "Press ENTER to fire!" (row 18)
     if (!this.locked) {
-      this._drawCentered(screen, 18, 'Press ENTER to fire!', sattr(178, 233));
+      this._drawCentered(screen, 18, 'Press ENTER or SPACE to fire!', sattr(178, 233));
     } else {
       this._drawCentered(screen, 18, 'FIRE!!!', sattr(196, 233));
     }

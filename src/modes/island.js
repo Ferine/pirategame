@@ -362,7 +362,7 @@ class IslandMode {
     }
 
     // Dig at X
-    if (key === 'dig') {
+    if (key === 'x') {
       this._dig();
       return;
     }

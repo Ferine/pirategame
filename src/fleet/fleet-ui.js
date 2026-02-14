@@ -108,7 +108,7 @@ function fleetHandleInput(key, ui, gameState) {
   }
 
   // X = sell ship
-  if (key === 'dig') {
+  if (key === 'x') {
     const ship = fleet.ships[ui.cursor];
     if (!ship) return true;
 

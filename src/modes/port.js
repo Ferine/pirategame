@@ -396,7 +396,7 @@ class PortMode {
     }
 
     // Talk to nearby NPC without triggering building interactions
-    if (key === 'talk') {
+    if (key === 't') {
       const npc = this._findAdjacentNPC();
       if (npc) {
         if (npc.storyNpcId && this.gameState.campaign) {

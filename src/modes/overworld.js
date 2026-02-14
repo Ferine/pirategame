@@ -26,6 +26,8 @@ const { createJournalState, journalHandleInput, journalRender } = require('../st
 const { getDifficulty } = require('../meta/legacy');
 const { logEvent, flushDay } = require('../meta/captains-log');
 const { createLogUIState, logUIHandleInput, logUIRender } = require('../meta/captains-log');
+const { createSeaObjectsState, updateSeaObjects, checkSeaObjectCollision, resolveSeaObject, SEA_OBJECT_TYPES } = require('../world/sea-objects');
+const { getCurrentAt, getCurrentSpeedMult } = require('../world/currents');
 
 // Movement direction vectors: N, NE, E, SE, S, SW, W, NW
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -85,6 +87,11 @@ class OverworldMode {
     // Initialize NPC ships if not already present
     if (!gameState.npcShips) {
       gameState.npcShips = createNPCShips(gameState);
+    }
+
+    // Initialize sea objects if not present
+    if (!gameState.seaObjects) {
+      gameState.seaObjects = createSeaObjectsState();
     }
 
     // Sync fleet flagship stats into ship/economy
@@ -171,6 +178,18 @@ class OverworldMode {
     // Update NPC ships
     if (this.gameState.npcShips) {
       updateNPCShips(this.gameState.npcShips, this.gameState, dt);
+    }
+
+    // Update sea objects
+    if (this.gameState.seaObjects && this.gameState.map) {
+      updateSeaObjects(this.gameState.seaObjects, ship.x, ship.y, this.gameState.map, dt);
+      const found = checkSeaObjectCollision(this.gameState.seaObjects, ship.x, ship.y);
+      if (found) {
+        const result = resolveSeaObject(found);
+        this._applySeaObjectEffects(result.effects, this.gameState);
+        this._pushNotice(result.text, 4.0);
+        logEvent(this.gameState.captainsLog, 'sea_discovery', { type: found.type });
+      }
     }
 
     // Update convoy escorts
@@ -342,6 +361,9 @@ class OverworldMode {
     // Render port/island labels
     this._renderLabels(screen);
 
+    // Render sea objects
+    this._renderSeaObjects(screen);
+
     // Render NPC ships
     this._renderNPCShips(screen);
 
@@ -409,13 +431,13 @@ class OverworldMode {
       return;
     }
 
-    if (key === 'combat_test') {
+    if (key === 'v') {
       this.gameState.combat = createCombatState(this.gameState);
       this.stateMachine.transition('SPYGLASS', this.gameState);
       return;
     }
 
-    if (key === 'port_test') {
+    if (key === 'p') {
       // Find nearest port for testing
       const port = this._findNearestPort();
       if (port) {
@@ -483,6 +505,31 @@ class OverworldMode {
       // Next change in 20-40 seconds
       wind.changeTimer = 20 + Math.random() * 20;
     }
+
+    // Wind gust system
+    if (!wind.gustCooldown) wind.gustCooldown = 15 + Math.random() * 20;
+    if (!wind.gustActive) {
+      wind.gustCooldown -= dt;
+      if (wind.gustCooldown <= 0) {
+        // Start a gust
+        wind.gustActive = true;
+        wind.gustTimer = 3 + Math.random() * 2; // 3-5s duration
+        wind.preGustDir = wind.direction;
+        // Sharp direction shift: 2-4 directions clockwise or counter
+        const shift = (2 + Math.floor(Math.random() * 3)) * (Math.random() < 0.5 ? 1 : -1);
+        wind.gustDir = ((wind.direction + shift) % 8 + 8) % 8;
+        wind.direction = wind.gustDir;
+        this._pushNotice('A sudden gust! Adjust your heading!', 2.5);
+      }
+    } else {
+      wind.gustTimer -= dt;
+      if (wind.gustTimer <= 0) {
+        // End gust, revert wind
+        wind.gustActive = false;
+        wind.direction = wind.preGustDir;
+        wind.gustCooldown = 15 + Math.random() * 20;
+      }
+    }
   }
 
   _updateShip(dt) {
@@ -498,7 +545,20 @@ class OverworldMode {
     const eco = this.gameState.economy;
     const speedBonus = eco ? (eco.speedBonus || 0) : 0;
     const speedMult = 1 + speedBonus;
-    const speed = SPEED_MULT[diff] * wind.strength * weatherSpeedMult * speedMult;
+
+    // Gust modifier: aligned with gust = +50%, misaligned = -30%
+    let gustMult = 1.0;
+    if (wind.gustActive && wind.gustDir !== undefined) {
+      let gustDiff = Math.abs(ship.direction - wind.gustDir);
+      if (gustDiff > 4) gustDiff = 8 - gustDiff;
+      gustMult = gustDiff <= 1 ? 1.5 : 0.7;
+    }
+
+    // Ocean current modifier
+    const current = getCurrentAt(ship.x, ship.y);
+    const currentMult = getCurrentSpeedMult(current, ship.direction);
+
+    const speed = SPEED_MULT[diff] * wind.strength * weatherSpeedMult * speedMult * gustMult * currentMult;
     this.gameState.currentSpeed = speed;
 
     // Accumulate fractional movement
@@ -970,6 +1030,73 @@ class OverworldMode {
         }
       }
       row.dirty = true;
+    }
+  }
+
+  _applySeaObjectEffects(effects, gameState) {
+    if (!effects) return;
+    if (effects.gold && gameState.economy) {
+      gameState.economy.gold += effects.gold;
+    }
+    if (effects.cargo && gameState.economy) {
+      for (const [good, qty] of Object.entries(effects.cargo)) {
+        gameState.economy.cargo[good] = (gameState.economy.cargo[good] || 0) + qty;
+      }
+    }
+    if (effects.hull) {
+      gameState.ship.hull = Math.max(1, gameState.ship.hull + effects.hull);
+    }
+    if (effects.spawnHostile && gameState.npcShips && gameState.map) {
+      // Spawn a pirate nearby
+      const { FACTION: F } = require('../world/npc-ships');
+      const pirate = {
+        id: Math.random().toString(36).slice(2, 8),
+        name: 'Ambush Pirate',
+        faction: F.PIRATE,
+        x: gameState.ship.x + (Math.random() < 0.5 ? 3 : -3),
+        y: gameState.ship.y + (Math.random() < 0.5 ? 3 : -3),
+        hull: 70, maxHull: 70, crew: 40, maxCrew: 40, masts: 2,
+        speed: 2.5, aggression: 1.0, moveAccum: 0,
+        desperate: false, cargo: {}, gold: 30,
+        aiTarget: { x: gameState.ship.x, y: gameState.ship.y },
+        aiTimer: 5, direction: 0,
+        tradeRoute: null, tradeRouteIdx: 0,
+      };
+      gameState.npcShips.push(pirate);
+    }
+  }
+
+  _renderSeaObjects(screen) {
+    const state = this.gameState.seaObjects;
+    if (!state || !state.objects) return;
+
+    const isFoggy = this.gameState.weather && this.gameState.weather.type === 'fog';
+    const playerX = this.gameState.ship.x;
+    const playerY = this.gameState.ship.y;
+
+    for (const obj of state.objects) {
+      const sx = obj.x - this.camera.x;
+      const sy = obj.y - this.camera.y;
+
+      if (sx < 0 || sx >= this.viewW || sy < 0 || sy >= this.viewH) continue;
+
+      const vis = this.visibility[obj.y * MAP_WIDTH + obj.x];
+      if (vis !== VIS_VISIBLE) continue;
+
+      if (isFoggy) {
+        const dx = obj.x - playerX;
+        const dy = obj.y - playerY;
+        if (dx * dx + dy * dy > FOG_HIDE_RANGE * FOG_HIDE_RANGE) continue;
+      }
+
+      const row = screen.lines[sy];
+      if (!row || sx >= row.length) continue;
+
+      const typeDef = SEA_OBJECT_TYPES[obj.type];
+      if (typeDef) {
+        row[sx][0] = sattr(typeDef.color, 17);
+        row[sx][1] = typeDef.char;
+      }
     }
   }
 

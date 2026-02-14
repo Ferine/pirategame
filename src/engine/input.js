@@ -35,22 +35,22 @@ class InputHandler {
 
     // V for combat test
     this.screen.key(['v'], () => {
-      this.stateMachine.handleInput('combat_test');
+      this.stateMachine.handleInput('v');
     });
 
     // P for port test
     this.screen.key(['p'], () => {
-      this.stateMachine.handleInput('port_test');
+      this.stateMachine.handleInput('p');
     });
 
-    // X to dig (island exploration)
+    // X to dig (island) / sell (fleet) / abandon (quests)
     this.screen.key(['x'], () => {
-      this.stateMachine.handleInput('dig');
+      this.stateMachine.handleInput('x');
     });
 
     // T to talk (city NPCs)
     this.screen.key(['t'], () => {
-      this.stateMachine.handleInput('talk');
+      this.stateMachine.handleInput('t');
     });
 
     // M for map or missions

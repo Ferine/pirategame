@@ -10,6 +10,7 @@ const { createFleetState } = require('../../src/fleet/fleet');
 const { createStats, createPersistent } = require('../../src/meta/legacy');
 const { createLogState } = require('../../src/meta/captains-log');
 const { createCampaignState } = require('../../src/story/campaign');
+const { createHelmsmanState } = require('../../src/world/helmsman');
 
 /**
  * Build a fresh gameState with all subsystems initialised.
@@ -50,6 +51,7 @@ function createTestGameState(overrides = {}) {
     seaObjects: null,
     convoy: null,
     blockade: null,
+    helmsman: createHelmsmanState(),
     melee: null,
     meleeResult: null,
     boardingNpcId: null,

@@ -60,6 +60,18 @@ const TEMPLATES = {
   npc_clash: [
     'Witnessed a clash between ships on the horizon. The sea is not safe for anyone.',
   ],
+  helmsman_engage: [
+    'Handed the helm to the first mate and set course for {name}.',
+    'Ordered the helmsman to steer for {name}. I retired to study the charts.',
+  ],
+  helmsman_arrival: [
+    'The helmsman brought us safely to {name}. A steady hand at the wheel.',
+    'We sighted {name} on the horizon. The helmsman has served us well.',
+  ],
+  helmsman_explore: [
+    'Set the helmsman to chart unknown waters. The Kattegat still holds secrets.',
+    'Ordered exploration of uncharted seas. Every league reveals something new.',
+  ],
 };
 
 function _pickTemplate(type) {

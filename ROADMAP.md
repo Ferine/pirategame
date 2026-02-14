@@ -264,7 +264,7 @@ A modern terminal pirate game — spiritual successor to **Kaptajn Kaper i Katte
 - [x] `npm test` runs all 386 tests via `node --test test/**/*.test.js`
 - [x] Seeded deterministic random helper for reproducible test runs
 - [x] Test game-state factory (full gameState without map/screen)
-- [x] **Scenario tests (21 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy, campaign, dialog, achievements, legacy, captains-log, npc-behavior, sea-objects, encounter-outcomes
+- [x] **Scenario tests (22 files):** factions, economy, crew, combat, melee, fleet, quests, weather, save-load, trajectory, day-night, world events, convoy, campaign, dialog, achievements, legacy, captains-log, npc-behavior, sea-objects, encounter-outcomes, helmsman
 - [x] **Integration tests (5 files):** trade voyage profit, combat→boarding→ship capture, crew mutiny cascade, quest delivery turn-in, faction cascade port lockout
 - [x] **Playthrough tests (1 file, 6 suites):** full campaign hero ending, pirate king ending, trade & upgrade loop, combat gauntlet, new game plus cycle, survival run hull management
 
@@ -360,6 +360,21 @@ test/
 
 **Files:** `world/npc-ships.js`, `world/sea-objects.js` (new), `world/currents.js` (new), `world/encounter-outcomes.js` (new), `modes/overworld.js`, `modes/encounter.js`, `meta/captains-log.js`, `render/hud.js`
 
+### Phase 22: Helmsman Autopilot — COMPLETE
+
+- [x] **Helmsman navigation menu**: Press N to open "Set Course" overlay — all ports sorted by distance + "Explore uncharted waters" option
+- [x] **Reactive steering**: Direct heading via atan2, 3-tile lookahead obstacle avoidance, ±3 direction scan for land
+- [x] **Smart tacking**: When heading into wind (trim diff 0-1), helmsman offsets heading by tack side for better trim, alternating every 8-15s
+- [x] **Explore mode**: Scans grid for nearest cluster of unexplored tiles, auto-navigates toward dark areas
+- [x] **Arrival detection**: Disengages within 2 tiles of target port, pushes notice and captain's log entry
+- [x] **Stuck detection**: If ship position unchanged for 3s, disengages with warning
+- [x] **Manual override**: Arrow keys or N key cancel autopilot with "You take the helm." notice
+- [x] **Encounter interrupt**: Helmsman disengages automatically when NPC encounter triggers
+- [x] **HUD integration**: Status bar at top of screen ("HELM: PortName dist [N to cancel]") + HUD line indicator
+- [x] **Captain's log**: 3 event templates (helmsman_engage, helmsman_arrival, helmsman_explore)
+
+**Files:** `world/helmsman.js` (new), `world/helmsman-ui.js` (new), `modes/overworld.js`, `engine/input.js`, `render/hud.js`, `meta/captains-log.js`
+
 ---
 
 ## Current File Structure
@@ -385,6 +400,8 @@ src/
     sea-objects.js      — Floating sea discovery system (6 types, spawn/despawn, outcomes)
     currents.js         — Deterministic ocean currents (sine wave, narrows boost)
     encounter-outcomes.js — Hail outcome tables, effects, weather prefix
+    helmsman.js         — Helmsman autopilot logic (reactive steering, tacking, explore)
+    helmsman-ui.js      — Helmsman navigation menu overlay (port list, explore option)
     weather.js          — Weather state machine (clear/fog/rain/storm, effects, biased transitions)
     quests.js           — Contracts and rumors (generation, progression, rewards, turn-in)
     day-night.js        — Day/night cycle (quarters, seasons, moon phases, dimming, sight range)

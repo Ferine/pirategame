@@ -3,6 +3,7 @@
 const blessed = require('neo-blessed');
 const { getWeatherEffects } = require('../world/weather');
 const { getQuarterName, getMoonPhase, getSeason } = require('../world/day-night');
+const { getHelmsmanHUDText } = require('../world/helmsman');
 
 const COMPASS_NAMES = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const WIND_ARROWS = ['\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196'];
@@ -79,7 +80,14 @@ function updateHUD(box, gameState) {
     convoyStr = `    CONVOY: ${alive}/${total} ${formation} ${timer}s`;
   }
 
-  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Trim: ${trimLabel}    Speed: ${speed} kn${weatherStr}${timeStr}${convoyStr}`;
+  // Helmsman info
+  let helmsmanStr = '';
+  if (gameState.helmsman) {
+    const ht = getHelmsmanHUDText(gameState.helmsman);
+    if (ht) helmsmanStr = `    ${ht}`;
+  }
+
+  const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Trim: ${trimLabel}    Speed: ${speed} kn${weatherStr}${timeStr}${convoyStr}${helmsmanStr}`;
   const defaultLine2 = `  Pos: (${ship.x}, ${ship.y})    Hull: ${ship.hull}/${ship.maxHull}    ${ship.name}`;
   const notice = (gameState.hudMessage || '').replace(/[{}]/g, '').trim();
   const line2 = notice ? `  Notice: ${notice}` : defaultLine2;

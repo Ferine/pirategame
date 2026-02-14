@@ -35,6 +35,8 @@ src/
     ports.js            — 9 real Kattegat port locations
     npc-ships.js        — NPC ship spawning, AI movement, faction system
     factions.js         — Reputation & faction system (5 factions, tiers, ripple effects)
+    helmsman.js         — Helmsman autopilot logic (reactive steering, tacking, explore)
+    helmsman-ui.js      — Helmsman navigation menu overlay (port list, explore option)
     weather.js          — Weather state machine (clear/fog/rain/storm, effects)
   modes/
     title.js            — Title screen mode (save/load menu)
@@ -103,6 +105,7 @@ Every game mode implements: `enter(gameState)`, `exit()`, `update(dt)`, `render(
 - Arrow keys / WASD: Set ship direction
 - Enter: Start game / interact / confirm
 - C: Toggle CRT filter (overworld)
+- N: Helmsman navigation menu / cancel autopilot (overworld)
 - L: Captain's log (overworld/port)
 - Q: Quit from title / return from modes
 - Ctrl-C: Exit anytime

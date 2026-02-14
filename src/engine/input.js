@@ -88,6 +88,11 @@ class InputHandler {
       this.stateMachine.handleInput('q');
     });
 
+    // N for helmsman navigation
+    this.screen.key(['n'], () => {
+      this.stateMachine.handleInput('n');
+    });
+
     // Tab for convoy formation toggle
     this.screen.key(['tab'], () => {
       this.stateMachine.handleInput('tab');

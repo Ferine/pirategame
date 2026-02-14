@@ -28,6 +28,8 @@ const { logEvent, flushDay } = require('../meta/captains-log');
 const { createLogUIState, logUIHandleInput, logUIRender } = require('../meta/captains-log');
 const { createSeaObjectsState, updateSeaObjects, checkSeaObjectCollision, resolveSeaObject, SEA_OBJECT_TYPES } = require('../world/sea-objects');
 const { getCurrentAt, getCurrentSpeedMult } = require('../world/currents');
+const { createHelmsmanState, engagePort, engageExplore, disengage, updateHeading, getHelmsmanHUDText } = require('../world/helmsman');
+const { createHelmsmanUI, helmsmanHandleInput, helmsmanRender } = require('../world/helmsman-ui');
 
 // Movement direction vectors: N, NE, E, SE, S, SW, W, NW
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -61,6 +63,7 @@ class OverworldMode {
     this.showMap = false;
     this.journalUI = null;
     this.logUI = null;
+    this.helmsmanUI = null;
   }
 
   enter(gameState) {
@@ -99,9 +102,15 @@ class OverworldMode {
       syncToGameState(gameState.fleet, gameState);
     }
 
+    // Initialize helmsman if absent
+    if (!gameState.helmsman) {
+      gameState.helmsman = createHelmsmanState();
+    }
+
     // Reset overlays
     this.journalUI = null;
     this.logUI = null;
+    this.helmsmanUI = null;
 
     // Cooldown to prevent re-triggering encounters immediately
     this.encounterCooldown = 1.0;
@@ -168,6 +177,29 @@ class OverworldMode {
           ship.hull = Math.max(1, ship.hull - dmg);
           this._pushNotice('The storm batters your hull!', 3.0);
           logEvent(this.gameState.captainsLog, 'storm', {});
+        }
+      }
+    }
+
+    // Helmsman autopilot steering
+    if (this.gameState.helmsman && this.gameState.helmsman.active) {
+      const helmsman = this.gameState.helmsman;
+      const newDir = updateHeading(helmsman, ship, wind, this.gameState.map, dt);
+      if (newDir !== null) {
+        ship.direction = newDir;
+      }
+      if (!helmsman.active) {
+        // Helmsman disengaged itself
+        const reason = helmsman.stoppedReason;
+        if (reason === 'arrived') {
+          this._pushNotice(`Arrived near ${helmsman.targetPort ? helmsman.targetPort.name : 'destination'}.`, 3.0);
+          logEvent(this.gameState.captainsLog, 'helmsman_arrival',
+            { name: helmsman.targetPort ? helmsman.targetPort.name : 'unknown' });
+        } else if (reason === 'explored') {
+          this._pushNotice('Helmsman: No more uncharted waters nearby.', 3.0);
+          logEvent(this.gameState.captainsLog, 'helmsman_explore', {});
+        } else if (reason === 'stuck') {
+          this._pushNotice('Helmsman: Cannot find a clear heading!', 3.0);
         }
       }
     }
@@ -329,6 +361,10 @@ class OverworldMode {
           const npc = result.npc || result;
           this.gameState.encounter = npc;
           this.encounterCooldown = 3.0;
+          // Disengage helmsman on encounter
+          if (this.gameState.helmsman && this.gameState.helmsman.active) {
+            disengage(this.gameState.helmsman, 'encounter');
+          }
           this.stateMachine.transition('ENCOUNTER', this.gameState);
           return;
         }
@@ -398,11 +434,43 @@ class OverworldMode {
       logUIRender(screen, this.logUI, this.gameState.captainsLog);
     }
 
+    // Helmsman menu overlay
+    if (this.helmsmanUI) {
+      helmsmanRender(screen, this.helmsmanUI);
+    }
+
+    // Helmsman status bar (when active, no menu)
+    if (!this.helmsmanUI && this.gameState.helmsman && this.gameState.helmsman.active) {
+      this._renderHelmsmanBar(screen);
+    }
+
     // Achievement toast (top-right corner)
     this._renderAchievementToast(screen);
   }
 
   handleInput(key) {
+    // Helmsman menu overlay takes priority
+    if (this.helmsmanUI) {
+      const result = helmsmanHandleInput(key, this.helmsmanUI);
+      if (result) {
+        if (result.action === 'port') {
+          engagePort(this.gameState.helmsman, result.data);
+          this._pushNotice(`Helmsman set course for ${result.data.name}.`, 3.0);
+          logEvent(this.gameState.captainsLog, 'helmsman_engage', { name: result.data.name });
+        } else if (result.action === 'explore') {
+          engageExplore(this.gameState.helmsman, this.gameState.ship.x, this.gameState.ship.y,
+            this.visibility, MAP_WIDTH, MAP_HEIGHT);
+          if (this.gameState.helmsman.active) {
+            this._pushNotice('Helmsman: Charting unexplored waters.', 3.0);
+            logEvent(this.gameState.captainsLog, 'helmsman_explore', {});
+          }
+        }
+        // Cancel or selection: close menu
+        this.helmsmanUI = null;
+      }
+      return;
+    }
+
     // Captain's log overlay takes priority
     if (this.logUI) {
       const consumed = logUIHandleInput(key, this.logUI, this.gameState.captainsLog);
@@ -475,6 +543,17 @@ class OverworldMode {
       return;
     }
 
+    // Helmsman navigation
+    if (key === 'n') {
+      if (this.gameState.helmsman && this.gameState.helmsman.active) {
+        disengage(this.gameState.helmsman, 'cancel');
+        this._pushNotice('You take the helm.', 2.0);
+      } else {
+        this.helmsmanUI = createHelmsmanUI(this.gameState);
+      }
+      return;
+    }
+
     // Toggle CRT filter
     if (key === 'c') {
       this.gameState.crtEnabled = !this.gameState.crtEnabled;
@@ -483,6 +562,11 @@ class OverworldMode {
 
     const dir = KEY_DIR[key];
     if (dir !== undefined) {
+      // Cancel helmsman on manual steering
+      if (this.gameState.helmsman && this.gameState.helmsman.active) {
+        disengage(this.gameState.helmsman, 'cancel');
+        this._pushNotice('You take the helm.', 2.0);
+      }
       this.gameState.ship.direction = dir;
     }
   }
@@ -1031,6 +1115,23 @@ class OverworldMode {
       }
       row.dirty = true;
     }
+  }
+
+  _renderHelmsmanBar(screen) {
+    const text = ` ${getHelmsmanHUDText(this.gameState.helmsman)}  [N to cancel] `;
+    const startX = Math.max(0, Math.floor((this.viewW - text.length) / 2));
+    const sy = 0;
+    const row = screen.lines[sy];
+    if (!row) return;
+    const attr = sattr(233, 178); // dark on gold
+    for (let i = 0; i < text.length; i++) {
+      const x = startX + i;
+      if (x >= 0 && x < row.length) {
+        row[x][0] = attr;
+        row[x][1] = text[i];
+      }
+    }
+    row.dirty = true;
   }
 
   _applySeaObjectEffects(effects, gameState) {

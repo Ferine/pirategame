@@ -1,6 +1,7 @@
 'use strict';
 
 const { sattr } = require('../render/tiles');
+const { getProfile } = require('./port-profiles');
 
 // Town tile types
 const T = {
@@ -20,6 +21,10 @@ const T = {
   CRATE:     13,
   BARREL:    14,
   SHIP_TILE: 15, // player's ship at dock — exit to overworld
+  FISH_RACK: 16,
+  WELL:      17,
+  CARGO_PILE: 18,
+  FOUNTAIN:  19,
 };
 
 // Tile rendering definitions
@@ -56,18 +61,45 @@ const TOWN_TILES = [
   { ch: 'o',      attr: sattr(94, 58),   passable: false, transparent: false, name: 'barrel' },
   // 15: SHIP_TILE
   { ch: '\u2302', attr: sattr(208, 17),  passable: true,  transparent: true,  name: 'ship' },
+  // 16: FISH_RACK
+  { ch: '\u256B', attr: sattr(94, 22),   passable: false, transparent: true,  name: 'fish_rack' },
+  // 17: WELL
+  { ch: 'U',      attr: sattr(255, 240), passable: false, transparent: true,  name: 'well' },
+  // 18: CARGO_PILE
+  { ch: '\u25A3', attr: sattr(94, 180),  passable: false, transparent: true,  name: 'cargo_pile' },
+  // 19: FOUNTAIN
+  { ch: '\u25CE', attr: sattr(33, 240),  passable: false, transparent: true,  name: 'fountain' },
 ];
 
 const TOWN_W = 60;
 const TOWN_H = 40;
 
+// Base building dimensions (before scaling)
+const BASE_BUILDING_DIMS = {
+  Tavern:          { w: 12, h: 8 },
+  Market:          { w: 14, h: 6 },
+  Shipwright:      { w: 10, h: 6 },
+  'Harbor Master': { w: 10, h: 6 },
+  Church:          { w: 10, h: 8 },
+};
+
+// Building name → floor tile type
+const BUILDING_FLOOR = {
+  Tavern:          T.TAVERN,
+  Market:          T.MARKET,
+  Shipwright:      T.SHIPWRIGHT,
+  'Harbor Master': T.HARBOR_MASTER,
+  Church:          T.CHURCH,
+};
+
 /**
  * Generate a town map for a given port.
- * Returns { tiles: Uint8Array, width, height, spawn: {x,y}, buildings: [...] }
+ * Returns { tiles: Uint8Array, width, height, spawn: {x,y}, buildings: [...], profile }
  */
 function generateTownMap(portName) {
-  const w = TOWN_W;
-  const h = TOWN_H;
+  const profile = getProfile(portName);
+  const w = profile.w;
+  const h = profile.h;
   const tiles = new Uint8Array(w * h);
 
   // Fill with grass
@@ -80,7 +112,7 @@ function generateTownMap(portName) {
     }
   }
 
-  // Dock strip — row h-4, from x=10 to x=50
+  // Dock strip — row h-4
   const dockY = h - 4;
   for (let x = 8; x < w - 8; x++) {
     tiles[dockY * w + x] = T.DOCK;
@@ -91,64 +123,94 @@ function generateTownMap(portName) {
   const shipY = dockY;
   tiles[shipY * w + shipX] = T.SHIP_TILE;
 
-  // Main street — vertical road from dock up through town center
+  // Lay streets based on profile pattern
   const mainStreetX = Math.floor(w / 2);
-  for (let y = 4; y < dockY; y++) {
-    tiles[y * w + mainStreetX] = T.ROAD;
-    // Road width of 3
-    if (mainStreetX - 1 >= 0) tiles[y * w + mainStreetX - 1] = T.ROAD;
-    if (mainStreetX + 1 < w) tiles[y * w + mainStreetX + 1] = T.ROAD;
-  }
+  _layoutStreets(tiles, w, h, profile.streetPattern, dockY);
 
-  // Cross street — horizontal at y=15
-  const crossY = 15;
-  for (let x = 5; x < w - 5; x++) {
-    tiles[crossY * w + x] = T.ROAD;
-    if (crossY - 1 >= 0) tiles[(crossY - 1) * w + x] = T.ROAD;
-  }
-
-  // Second cross street at y=26
-  const cross2Y = 26;
-  for (let x = 5; x < w - 5; x++) {
-    tiles[cross2Y * w + x] = T.ROAD;
-  }
-
+  // Place buildings using profile zones
   const buildings = [];
+  const buildingOrder = ['Tavern', 'Market', 'Shipwright', 'Harbor Master', 'Church'];
+  for (const name of buildingOrder) {
+    const zone = profile.buildingZones[name];
+    if (!zone) continue;
+    const baseDims = BASE_BUILDING_DIMS[name];
+    if (!baseDims) continue;
+    const scale = (profile.buildingScale && profile.buildingScale[name]) || {};
+    const bw = Math.round(baseDims.w * (scale.w || 1));
+    const bh = Math.round(baseDims.h * (scale.h || 1));
+    const bx = Math.round(zone.xFrac * w);
+    const by = Math.round(zone.yFrac * h);
+    const floorType = BUILDING_FLOOR[name];
+    const bld = _placeBuilding(tiles, w, h, bx, by, bw, bh, floorType, name);
+    if (bld) buildings.push(bld);
+  }
 
-  // --- Place buildings ---
+  // Scatter lanterns along streets
+  _placeLanterns(tiles, w, h, mainStreetX, dockY);
 
-  // Tavern — left of main street, between cross streets
-  const tavern = _placeBuilding(tiles, w, h, 8, 17, 12, 8, T.TAVERN, 'Tavern');
-  if (tavern) buildings.push(tavern);
+  // Scatter crates/barrels near dock, scaled by clutterDensity
+  _placeDockClutter(tiles, w, h, dockY, profile.clutterDensity);
 
-  // Market — right of main street, near first cross street
-  const market = _placeBuilding(tiles, w, h, mainStreetX + 4, 17, 14, 6, T.MARKET, 'Market');
-  if (market) buildings.push(market);
-
-  // Shipwright — right side, near dock
-  const shipwright = _placeBuilding(tiles, w, h, mainStreetX + 5, 28, 10, 6, T.SHIPWRIGHT, 'Shipwright');
-  if (shipwright) buildings.push(shipwright);
-
-  // Harbor master — left side, near dock
-  const harborMaster = _placeBuilding(tiles, w, h, 8, 28, 10, 6, T.HARBOR_MASTER, 'Harbor Master');
-  if (harborMaster) buildings.push(harborMaster);
-
-  // Church — top of town, center
-  const church = _placeBuilding(tiles, w, h, mainStreetX - 5, 5, 10, 8, T.CHURCH, 'Church');
-  if (church) buildings.push(church);
-
-  // Scatter some lanterns along streets
-  _placeLanterns(tiles, w, h, mainStreetX, crossY, cross2Y, dockY);
-
-  // Scatter crates/barrels near dock
-  _placeDockClutter(tiles, w, h, dockY);
+  // Place decorations
+  _placeDecorations(tiles, w, h, profile);
 
   // Player spawn: on dock, near ship
   const spawn = { x: shipX, y: shipY - 1 };
   // Make sure spawn is walkable
   tiles[spawn.y * w + spawn.x] = T.DOCK;
 
-  return { tiles, width: w, height: h, spawn, buildings, shipX, shipY };
+  return { tiles, width: w, height: h, spawn, buildings, shipX, shipY, profile };
+}
+
+/**
+ * Lay streets based on the pattern type.
+ */
+function _layoutStreets(tiles, w, h, pattern, dockY) {
+  const mainX = Math.floor(w / 2);
+
+  // Main street — always present: vertical road from top area to dock
+  for (let y = 4; y < dockY; y++) {
+    tiles[y * w + mainX] = T.ROAD;
+    if (mainX - 1 >= 0) tiles[y * w + mainX - 1] = T.ROAD;
+    if (mainX + 1 < w) tiles[y * w + mainX + 1] = T.ROAD;
+  }
+
+  if (pattern === 'single') {
+    // Just the main street — one cross at ~40% height
+    const crossY = Math.round(h * 0.40);
+    for (let x = 5; x < w - 5; x++) {
+      tiles[crossY * w + x] = T.ROAD;
+    }
+  } else if (pattern === 'cross') {
+    // Two horizontal cross streets
+    const cross1Y = Math.round(h * 0.38);
+    const cross2Y = Math.round(h * 0.65);
+    for (let x = 5; x < w - 5; x++) {
+      tiles[cross1Y * w + x] = T.ROAD;
+      if (cross1Y - 1 >= 0) tiles[(cross1Y - 1) * w + x] = T.ROAD;
+    }
+    for (let x = 5; x < w - 5; x++) {
+      tiles[cross2Y * w + x] = T.ROAD;
+    }
+  } else if (pattern === 'grid') {
+    // Two horizontal + two vertical streets
+    const cross1Y = Math.round(h * 0.33);
+    const cross2Y = Math.round(h * 0.58);
+    for (let x = 5; x < w - 5; x++) {
+      tiles[cross1Y * w + x] = T.ROAD;
+      if (cross1Y - 1 >= 0) tiles[(cross1Y - 1) * w + x] = T.ROAD;
+    }
+    for (let x = 5; x < w - 5; x++) {
+      tiles[cross2Y * w + x] = T.ROAD;
+    }
+    // Two vertical side streets
+    const sideX1 = Math.round(w * 0.25);
+    const sideX2 = Math.round(w * 0.75);
+    for (let y = 4; y < dockY; y++) {
+      tiles[y * w + sideX1] = T.ROAD;
+      tiles[y * w + sideX2] = T.ROAD;
+    }
+  }
 }
 
 /**
@@ -194,16 +256,18 @@ function _placeBuilding(tiles, mapW, mapH, bx, by, bw, bh, floorType, name) {
   };
 }
 
-function _placeLanterns(tiles, w, h, mainX, crossY, cross2Y, dockY) {
-  const spots = [
-    [mainX - 2, crossY - 3],
-    [mainX + 2, crossY - 3],
-    [mainX - 2, crossY + 3],
-    [mainX + 2, crossY + 3],
-    [mainX - 2, cross2Y - 2],
-    [mainX + 2, cross2Y - 2],
-    [mainX,     dockY - 1],
-  ];
+function _placeLanterns(tiles, w, h, mainX, dockY) {
+  // Place lanterns at street intersections and along the main road
+  const spots = [];
+
+  // Along main street every ~8 tiles
+  for (let y = 6; y < dockY - 2; y += 8) {
+    spots.push([mainX - 2, y]);
+    spots.push([mainX + 2, y]);
+  }
+
+  // Near dock
+  spots.push([mainX, dockY - 1]);
 
   for (const [lx, ly] of spots) {
     if (lx >= 0 && lx < w && ly >= 0 && ly < h) {
@@ -216,13 +280,18 @@ function _placeLanterns(tiles, w, h, mainX, crossY, cross2Y, dockY) {
   }
 }
 
-function _placeDockClutter(tiles, w, h, dockY) {
+function _placeDockClutter(tiles, w, h, dockY, density) {
   const clutterTypes = [T.CRATE, T.BARREL, T.CRATE, T.BARREL];
-  // Place a few items along dock edges
-  const spots = [
+  // All potential clutter spots along dock
+  const allSpots = [
     [10, dockY], [11, dockY], [w - 12, dockY], [w - 11, dockY],
     [15, dockY], [w - 16, dockY],
+    [13, dockY], [w - 14, dockY],
   ];
+
+  // Use density to determine how many spots to fill
+  const count = Math.max(1, Math.round(allSpots.length * (density || 0.5)));
+  const spots = allSpots.slice(0, count);
 
   for (let i = 0; i < spots.length; i++) {
     const [cx, cy] = spots[i];
@@ -232,6 +301,50 @@ function _placeDockClutter(tiles, w, h, dockY) {
         tiles[idx] = clutterTypes[i % clutterTypes.length];
       }
     }
+  }
+}
+
+/**
+ * Place decoration tiles on grass near roads.
+ */
+function _placeDecorations(tiles, w, h, profile) {
+  const decoTypes = profile.decorations;
+  if (!decoTypes || decoTypes.length === 0) return;
+
+  // Simple seeded pseudo-random based on port character string
+  let seed = 0;
+  for (let i = 0; i < (profile.character || '').length; i++) {
+    seed = (seed * 31 + profile.character.charCodeAt(i)) | 0;
+  }
+  const rng = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return (seed >> 16) / 32768;
+  };
+
+  // Find grass tiles adjacent to roads
+  const candidates = [];
+  for (let y = 2; y < h - 5; y++) {
+    for (let x = 2; x < w - 2; x++) {
+      if (tiles[y * w + x] !== T.GRASS) continue;
+      // Check if adjacent to road
+      const adj = [
+        tiles[(y - 1) * w + x],
+        tiles[(y + 1) * w + x],
+        tiles[y * w + (x - 1)],
+        tiles[y * w + (x + 1)],
+      ];
+      if (adj.some(t => t === T.ROAD)) {
+        candidates.push([x, y]);
+      }
+    }
+  }
+
+  // Place 2-4 decorations
+  const count = Math.min(candidates.length, 2 + Math.floor(rng() * 3));
+  for (let i = 0; i < count; i++) {
+    const idx = Math.floor(rng() * candidates.length);
+    const [dx, dy] = candidates.splice(idx, 1)[0];
+    tiles[dy * w + dx] = decoTypes[i % decoTypes.length];
   }
 }
 

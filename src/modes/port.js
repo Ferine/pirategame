@@ -9,6 +9,7 @@ const { onPortVisit } = require('../crew/crew');
 const { FACTION_INFO, getRepTier } = require('../world/factions');
 const { createMeleeState } = require('../combat/melee-state');
 const { spawnTownNPCs } = require('../port/town-npcs');
+const { RUMORS } = require('../port/port-profiles');
 const { saveGame } = require('../engine/save-load');
 const { relocateShipToSafeWater } = require('../world/navigation');
 const {
@@ -114,7 +115,8 @@ class PortMode {
     );
 
     this._computeFOV();
-    this.message = `You step ashore at ${this.portName}.`;
+    const profile = this.townMap.profile;
+    this.message = profile ? profile.arrivalText : `You step ashore at ${this.portName}.`;
     this.messageTimer = 4.0;
 
     // Ensure quests are initialized and resolve any completed/failed contracts.
@@ -129,7 +131,7 @@ class PortMode {
     }
 
     // Spawn town NPCs
-    this.npcs = spawnTownNPCs(this.townMap);
+    this.npcs = spawnTownNPCs(this.townMap, this.portName);
 
     // Inject story NPCs if campaign is active
     if (gameState.campaign && gameState.campaign.act > 0) {
@@ -218,6 +220,16 @@ class PortMode {
     // Fleet UI overlay
     if (this.fleetUI) {
       fleetUpdate(dt, this.fleetUI);
+    }
+
+    // NPC wandering
+    for (const npc of this.npcs) {
+      if (npc.storyNpcId) continue; // skip story NPCs
+      npc.moveTimer -= dt;
+      if (npc.moveTimer <= 0) {
+        npc.moveTimer = npc.moveInterval;
+        this._moveNPC(npc);
+      }
     }
   }
 
@@ -402,7 +414,7 @@ class PortMode {
         if (npc.storyNpcId && this.gameState.campaign) {
           this._openStoryDialog(npc);
         } else {
-          this.message = npc.greeting;
+          this.message = this._getNPCLine(npc);
         }
       } else {
         this.message = 'No one nearby to talk to.';
@@ -660,7 +672,7 @@ class PortMode {
     // If standing on an NPC tile, prioritize dialogue.
     const npcHere = this._findNPCAt(this.playerX, this.playerY);
     if (npcHere) {
-      this.message = npcHere.greeting;
+      this.message = this._getNPCLine(npcHere);
       this.messageTimer = 4.0;
       return;
     }
@@ -760,7 +772,7 @@ class PortMode {
     // Check for NPC adjacency
     const npc = this._findAdjacentNPC();
     if (npc) {
-      this.message = npc.greeting;
+      this.message = this._getNPCLine(npc);
       this.messageTimer = 4.0;
       return;
     }
@@ -1146,6 +1158,51 @@ class PortMode {
       if (bld.doorX === x && bld.doorY === y) return bld;
     }
     return null;
+  }
+
+  _moveNPC(npc) {
+    const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+    const [dx, dy] = dirs[Math.floor(Math.random() * dirs.length)];
+    const nx = npc.x + dx;
+    const ny = npc.y + dy;
+
+    // Bounds check
+    if (nx < 0 || nx >= this.townMap.width || ny < 0 || ny >= this.townMap.height) return;
+
+    // Passability check
+    const tile = this.townMap.tiles[ny * this.townMap.width + nx];
+    const tileDef = TOWN_TILES[tile];
+    if (!tileDef || !tileDef.passable) return;
+
+    // Wander radius check
+    const distX = Math.abs(nx - npc.homeX);
+    const distY = Math.abs(ny - npc.homeY);
+    if (distX > npc.wanderRadius || distY > npc.wanderRadius) return;
+
+    // NPC collision check
+    if (this._findNPCAt(nx, ny)) return;
+
+    // Player collision check
+    if (nx === this.playerX && ny === this.playerY) return;
+
+    npc.x = nx;
+    npc.y = ny;
+  }
+
+  _getNPCLine(npc) {
+    // Story NPCs always use their own greeting
+    if (npc.storyNpcId) return npc.greeting;
+    // 25% chance to share a rumor instead of greeting
+    if (Math.random() < 0.25 && RUMORS.length > 0) {
+      // Seed rumor index by portName + day for mild consistency
+      const day = (this.gameState.quests && this.gameState.quests.day) || 1;
+      let hash = day;
+      for (let i = 0; i < this.portName.length; i++) {
+        hash = (hash * 31 + this.portName.charCodeAt(i)) | 0;
+      }
+      return RUMORS[Math.abs(hash) % RUMORS.length];
+    }
+    return npc.greeting;
   }
 
   _openStoryDialog(npc) {

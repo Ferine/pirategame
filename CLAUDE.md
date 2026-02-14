@@ -62,8 +62,9 @@ src/
     lanes.js            — Frogger lane generation, obstacles, collision
     harbor-art.js       — Obstacle sprites, lane colors, animations
   port/
-    town-map.js         — Procedural town layout generator (60x40, 16 tile types)
-    town-npcs.js        — Town NPC definitions and spawning (5 types)
+    port-profiles.js    — Per-port personality data (9 ports, sizes, street patterns, decorations, rumors)
+    town-map.js         — Procedural town layout generator (variable sizes, 20 tile types, profile-driven)
+    town-npcs.js        — Town NPC definitions and spawning (5 building + 3 ambient types, wandering)
   stealth/
     stealth-map.js      — Stealth map tiles and template generation (3 templates)
     guard-ai.js         — Guard AI, vision cones, alert cascade, hiding

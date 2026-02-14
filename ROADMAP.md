@@ -393,6 +393,22 @@ test/
 
 **Files:** `stealth/stealth-map.js`, `stealth/guard-ai.js`, `modes/stealth.js`, `engine/input.js`, `modes/overworld.js`, `engine/save-load.js`
 
+### Phase 24: Lively Towns & NPCs — COMPLETE
+
+- [x] **Port profiles**: Per-port personality data (9 ports) — size, street pattern, building zones, decorations, arrival text, ambient NPC count
+- [x] **Variable town sizes**: Small (50x35), medium (60x40), large (70x45) driven by port profile
+- [x] **Street patterns**: 3 layout types — single (one cross street), cross (two cross streets), grid (cross + side streets)
+- [x] **Profile-driven building placement**: Building positions use fractional x/y zones per port, with per-building scale multipliers
+- [x] **4 decoration tile types**: Fish rack, well, cargo pile, fountain — placed on grass near roads
+- [x] **Dock clutter density**: Crate/barrel count scaled by port profile clutterDensity factor
+- [x] **Expanded NPC greetings**: 3-4 generic greetings per NPC type + port-specific greetings for key ports
+- [x] **3 ambient NPC types**: Dockworker (D, dock tiles), townsperson (T, road tiles), urchin (u, road tiles)
+- [x] **NPC wandering**: All non-story NPCs wander within radius (2 for building, 3 for ambient) on 2-5s timer
+- [x] **Rumor system**: 12 rumors (trade hints, danger warnings, tips) — 25% chance when talking to any NPC, seeded by port+day
+- [x] **Port arrival text**: Each port shows unique atmospheric description on entry
+
+**Files:** `port/port-profiles.js`, `port/town-map.js`, `port/town-npcs.js`, `modes/port.js`
+
 ---
 
 ## Current File Structure
@@ -448,8 +464,9 @@ src/
     lanes.js            — Frogger lane generation, obstacles, collision
     harbor-art.js       — Obstacle sprites, lane colors, animations
   port/
-    town-map.js         — Procedural town layout generator (60x40, 16 tile types)
-    town-npcs.js        — Town NPC definitions and spawning (5 types)
+    port-profiles.js    — Per-port personality data (9 ports, sizes, street patterns, decorations, rumors)
+    town-map.js         — Procedural town layout generator (variable sizes, 20 tile types, profile-driven)
+    town-npcs.js        — Town NPC definitions and spawning (5 building + 3 ambient types, wandering)
   island/
     island-map.js       — Procedural island generation (50x35, 16 tile types, caves, ruins, puzzles)
     wildlife.js         — Wildlife entities (crab, snake, boar — wander/aggressive/charge)

@@ -952,6 +952,11 @@ class OverworldMode {
     const isFoggy = this.gameState.weather && this.gameState.weather.type === 'fog';
     const px = this.gameState.ship.x;
     const py = this.gameState.ship.y;
+    // Slow pulse cycle so the marker draws the player's eye without screaming.
+    // Cycle: dim → mid → bright → mid → dim, ~2s period.
+    const pulse = (Math.sin(this.animTimer * 3 + this.animFrame) + 1) * 0.5;
+    const palette = [240, 244, 250, 252, 250, 244];
+    const pulseColor = palette[Math.min(palette.length - 1, Math.floor(pulse * palette.length))];
     for (const s of ships) {
       const sx = s.x - this.camera.x;
       const sy = s.y - this.camera.y;
@@ -967,7 +972,7 @@ class OverworldMode {
       if (!def) continue;
       const row = screen.lines[sy];
       if (!row || sx >= row.length) continue;
-      row[sx][0] = sattr(def.color, 17);
+      row[sx][0] = sattr(pulseColor, 17);
       row[sx][1] = def.char;
     }
   }

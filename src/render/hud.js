@@ -50,7 +50,8 @@ function updateHUD(box, gameState) {
   // Sail trim quality based on ship-vs-wind angle
   let diff = Math.abs(ship.direction - wind.direction);
   if (diff > 4) diff = 8 - diff;
-  const TRIM_LABELS = ['DEAD', 'POOR', 'GREAT', 'GOOD', 'FAIR'];
+  // Indexed by sail-vs-wind angle diff (0-4), matching SPEED_MULT in overworld.js
+  const TRIM_LABELS = ['DEAD', 'POOR', 'GOOD', 'GREAT', 'FAIR'];
   const trimLabel = TRIM_LABELS[diff] || 'FAIR';
 
   // Weather display

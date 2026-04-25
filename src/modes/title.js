@@ -117,7 +117,7 @@ class TitleMode {
       row.dirty = true;
     }
 
-    if (this.box && !this.box.screen) {
+    if (this.box && !this.box.parent) {
       screen.append(this.box);
     }
   }

@@ -8,6 +8,7 @@ const { createFleetState, syncFromGameState: fleetSyncFrom } = require('../fleet
 const { syncAndCheckAchievements } = require('../meta/legacy');
 const { createCampaignState } = require('../story/campaign');
 const { MAP_WIDTH, MAP_HEIGHT } = require('../world/map-gen');
+const { createCodecState, reconcileCodecState } = require('../world/codec-ships');
 
 const SAVE_DIR = path.join(os.homedir(), '.kattegat-kaper');
 
@@ -50,6 +51,10 @@ function serializeGameState(gameState) {
     difficulty: gameState.difficulty || 'normal',
     ngPlus: gameState.ngPlus || false,
     visibility: gameState.visibility ? _rleEncode(gameState.visibility) : null,
+    codec: gameState.codec ? {
+      perShip: gameState.codec.perShip,
+      lastSpawnDay: gameState.codec.lastSpawnDay,
+    } : null,
   };
 
   return JSON.stringify(data, null, 2);
@@ -160,6 +165,10 @@ function deserializeGameState(json, gameState) {
   if (data.visibility) {
     gameState.visibility = _rleDecode(data.visibility, MAP_WIDTH * MAP_HEIGHT);
   }
+
+  // Restore codec eavesdrop state (transient codecShips array stays empty)
+  gameState.codec = reconcileCodecState(data.codec || createCodecState());
+  gameState.codecShips = [];
 
   return true;
 }

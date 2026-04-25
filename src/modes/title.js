@@ -12,6 +12,7 @@ const { createEventsState } = require('../world/events');
 const { createFleetState } = require('../fleet/fleet');
 const { createCampaignState } = require('../story/campaign');
 const { createLogState } = require('../meta/captains-log');
+const { createCodecState } = require('../world/codec-ships');
 const { sattr } = require('../render/tiles');
 
 const BASE_MENU = ['Continue', 'New Game', 'Load Game', 'Quit'];
@@ -272,6 +273,8 @@ class TitleMode {
     gs.captainsLog = createLogState();
     gs.achievementToasts = [];
     gs.ngPlus = false;
+    gs.codec = createCodecState();
+    gs.codecShips = [];
     // Preserve: gs.map, gs.persistent
   }
 

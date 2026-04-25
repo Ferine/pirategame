@@ -9,6 +9,7 @@ const { MAP_WIDTH, MAP_HEIGHT } = require('../world/map-gen');
 const { createCombatState } = require('../combat/combat-state');
 const { createHarborState } = require('../harbor/lanes');
 const { FACTION_COLORS, createNPCShips, updateNPCShips, checkEncounter } = require('../world/npc-ships');
+const { updateCodecShips, findCodecShipInSight, getMarkedShipById } = require('../world/codec-ships');
 const { tickMorale } = require('../crew/crew');
 const { isPortAccessAllowed } = require('../world/factions');
 const { updateWeather, getWeatherEffects, FOG_HIDE_RANGE, RAIN_CHARS, FOG_CHARS } = require('../world/weather');
@@ -215,6 +216,11 @@ class OverworldMode {
       updateNPCShips(this.gameState.npcShips, this.gameState, dt);
     }
 
+    // Update codec (eavesdrop) ships — separate pool so they can't be fired upon
+    if (this.gameState.codec) {
+      updateCodecShips(this.gameState, dt);
+    }
+
     // Update sea objects
     if (this.gameState.seaObjects && this.gameState.map) {
       updateSeaObjects(this.gameState.seaObjects, ship.x, ship.y, this.gameState.map, dt);
@@ -405,6 +411,7 @@ class OverworldMode {
 
     // Render NPC ships
     this._renderNPCShips(screen);
+    this._renderCodecShips(screen);
 
     // Render convoy escort ships overlay
     if (this.gameState.convoy && this.gameState.convoy.active) {
@@ -503,6 +510,13 @@ class OverworldMode {
     }
 
     if (key === 'v') {
+      // If a marked codec ship is in sight, eavesdrop instead of opening combat.
+      const codecShip = this.gameState.codec ? findCodecShipInSight(this.gameState) : null;
+      if (codecShip) {
+        this.gameState.codec.activeShipId = codecShip.id;
+        this.stateMachine.transition('CODEC', this.gameState);
+        return;
+      }
       this.gameState.combat = createCombatState(this.gameState);
       this.stateMachine.transition('SPYGLASS', this.gameState);
       return;
@@ -930,6 +944,32 @@ class OverworldMode {
       }
     }
     return best;
+  }
+
+  _renderCodecShips(screen) {
+    const ships = this.gameState.codecShips;
+    if (!ships || ships.length === 0) return;
+    const isFoggy = this.gameState.weather && this.gameState.weather.type === 'fog';
+    const px = this.gameState.ship.x;
+    const py = this.gameState.ship.y;
+    for (const s of ships) {
+      const sx = s.x - this.camera.x;
+      const sy = s.y - this.camera.y;
+      if (sx < 0 || sx >= this.viewW || sy < 0 || sy >= this.viewH) continue;
+      const vis = this.visibility[s.y * MAP_WIDTH + s.x];
+      if (vis !== VIS_VISIBLE) continue;
+      if (isFoggy) {
+        const dx = s.x - px;
+        const dy = s.y - py;
+        if (dx * dx + dy * dy > FOG_HIDE_RANGE * FOG_HIDE_RANGE) continue;
+      }
+      const def = getMarkedShipById(s.defId);
+      if (!def) continue;
+      const row = screen.lines[sy];
+      if (!row || sx >= row.length) continue;
+      row[sx][0] = sattr(def.color, 17);
+      row[sx][1] = def.char;
+    }
   }
 
   _renderNPCShips(screen) {

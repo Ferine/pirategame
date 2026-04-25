@@ -32,6 +32,8 @@ const { createCampaignState } = require('./story/campaign');
 const { createStats, loadPersistent } = require('./meta/legacy');
 const { createLogState } = require('./meta/captains-log');
 const { CreditsMode } = require('./modes/credits');
+const { CodecMode } = require('./modes/codec');
+const { createCodecState } = require('./world/codec-ships');
 
 async function main() {
   const screen = createScreen();
@@ -102,6 +104,8 @@ async function main() {
     persistent: loadPersistent(),
     achievementToasts: [],
     ngPlus: false,
+    codec: createCodecState(),
+    codecShips: [],
   };
 
   // Set up state machine
@@ -118,6 +122,7 @@ async function main() {
   const meleeMode = new MeleeMode(sm, gameState);
   const stealthMode = new StealthMode(sm, gameState);
   const creditsMode = new CreditsMode(sm, gameState);
+  const codecMode = new CodecMode(sm, gameState);
 
   sm.register('TITLE', titleMode);
   sm.register('OVERWORLD', overworldMode);
@@ -131,6 +136,7 @@ async function main() {
   sm.register('MELEE', meleeMode);
   sm.register('STEALTH', stealthMode);
   sm.register('CREDITS', creditsMode);
+  sm.register('CODEC', codecMode);
 
   // Set up input
   new InputHandler(screen, sm);

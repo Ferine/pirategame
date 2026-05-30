@@ -28,6 +28,10 @@ const TEMPLATES = {
     'We were bested in battle. The ship limps onward, hull groaning.',
     'A defeat most bitter. We retreated with what little pride remained.',
   ],
+  mutiny: [
+    'The crew mutinied over unpaid wages and a long voyage. They took their due from the hold.',
+    'Discontent boiled over into mutiny. I conceded coin to keep my command — and my neck.',
+  ],
   treasure: [
     'Unearthed buried treasure on the island. Fortune smiles upon the bold.',
     'X marked the spot true. Gold and goods recovered from beneath the sand.',
@@ -42,15 +46,22 @@ const TEMPLATES = {
   ],
   barrel: [
     'Hid inside a barrel during infiltration. A most undignified but effective stratagem.',
+    'Spent a quarter-hour as a barrel. The guards passed by discussing a woman named Margrethe. I learned nothing useful and everything about Margrethe.',
+    'Folded myself into a herring barrel. I shall smell of the deed for a week.',
   ],
   stealth_success: [
     'Infiltrated the fort without raising alarm. The guards suspected nothing.',
+    'Slipped in and out like a draught under a door. They will blame the wind.',
+    'The garrison never knew I came. The mark of a tidy night\'s work.',
   ],
   melee_win: [
     'Won a close-quarters fight. Steel against steel, and I stood victorious.',
+    'He had the longer reach. I had the shorter patience.',
+    'A brief and ungentlemanly exchange. I am told I won.',
   ],
   convoy_complete: [
     'Escorted the convoy safely to its destination. The merchants were grateful.',
+    'Delivered the convoy whole. The merchants thanked me in coin, which I prefer to words.',
   ],
   sea_discovery: [
     'Came upon {type} adrift in the Kattegat. The sea gives and takes in equal measure.',
@@ -59,6 +70,8 @@ const TEMPLATES = {
   ],
   npc_clash: [
     'Witnessed a clash between ships on the horizon. The sea is not safe for anyone.',
+    'Two ships settled an argument on the horizon. We were not invited, and did not insist.',
+    'Distant gunfire. Someone else\'s quarrel, thank God.',
   ],
   helmsman_engage: [
     'Handed the helm to the first mate and set course for {name}.',

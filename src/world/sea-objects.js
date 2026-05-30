@@ -200,7 +200,14 @@ function resolveSeaObject(object) {
         text = 'A fragment of a treasure map! Could it lead somewhere?';
         effects.treasureHint = true;
       } else {
-        text = '"If you read this, I have been eaten by a whale. Tell my wife I love her cod."';
+        const notes = [
+          '"If you read this, I have been eaten by a whale. Tell my wife I love her cod."',
+          '"Day 40 adrift. The cabin boy has begun to look edible. Day 41: he looked back."',
+          '"To whoever finds this: the treasure was a metaphor. I am so sorry."',
+          '"Help. — (the rest is illegible, which is frankly the most useful word anyway.)"',
+          '"Send rum. And a smaller boat. This one keeps sinking."',
+        ];
+        text = notes[Math.floor(Math.random() * notes.length)];
       }
       break;
     }

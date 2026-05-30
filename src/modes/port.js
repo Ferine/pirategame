@@ -56,6 +56,39 @@ const BUILDING_MESSAGES = {
   [T.CHURCH]:         'A quiet refuge. Lutheran hymns echo faintly.',
 };
 
+// A dry weather/time observation appended to the port arrival line — the
+// captain's-journal voice the design calls for, delivered at a moment every
+// player hits constantly. Varies per visit so ports feel alive.
+function _weatherAside(gameState, portName) {
+  const w = gameState.weather ? gameState.weather.type : 'clear';
+  const day = (gameState.quests && gameState.quests.day) || 1;
+  const pick = (arr) => ' ' + arr[day % arr.length];
+  if (w === 'rain') {
+    return pick([
+      `It is raining. In ${portName} this is not news.`,
+      'It is raining. The harbour does not seem surprised.',
+    ]);
+  }
+  if (w === 'fog') {
+    return pick([
+      'The town is somewhere in this fog. You take it on faith.',
+      'Fog swallows the masts. You find the dock by smell.',
+    ]);
+  }
+  if (w === 'storm') {
+    return pick([
+      'You make fast against the gale and vow never to leave. You will, within the hour.',
+      'The storm follows you ashore, in spirit if not in fact.',
+    ]);
+  }
+  // clear
+  return pick([
+    'The weather is, for once, declining to be a problem.',
+    'A rare clear sky. Enjoy it; it will not last.',
+    '',
+  ]);
+}
+
 // Water animation chars
 const WATER_CHARS = ['~', '\u2248', '\u223C', '~'];
 
@@ -116,7 +149,8 @@ class PortMode {
 
     this._computeFOV();
     const profile = this.townMap.profile;
-    this.message = profile ? profile.arrivalText : `You step ashore at ${this.portName}.`;
+    const base = profile ? profile.arrivalText : `You step ashore at ${this.portName}.`;
+    this.message = base + _weatherAside(gameState, this.portName);
     this.messageTimer = 4.0;
 
     // Ensure quests are initialized and resolve any completed/failed contracts.
@@ -644,22 +678,22 @@ class PortMode {
 
     // Stepping onto building interior tiles — show hint for shops
     if (tile === T.TAVERN) {
-      this.message = 'Press ENTER to recruit crew. Watch out for brawlers.';
+      this.message = 'Smoke, ale, and men who know things. ENTER to recruit (mind the brawlers).';
       this.messageTimer = 3.0;
       return;
     }
     if (tile === T.MARKET) {
-      this.message = 'Press ENTER to trade goods.';
+      this.message = 'The merchants smile. Watch your purse. ENTER to trade.';
       this.messageTimer = 3.0;
       return;
     }
     if (tile === T.SHIPWRIGHT) {
-      this.message = 'Press ENTER to buy upgrades.';
+      this.message = 'Sawdust and tar. The shipwright eyes your hull, and your coin. ENTER to refit.';
       this.messageTimer = 3.0;
       return;
     }
     if (tile === T.HARBOR_MASTER) {
-      this.message = 'Press ENTER for mission board. Press R for faction standings.';
+      this.message = 'Charts, ledgers, and gossip for sale. ENTER for contracts, R for standings.';
       this.messageTimer = 3.0;
       return;
     }

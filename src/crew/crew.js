@@ -122,7 +122,10 @@ function createCrewState() {
  * Calculate average morale across all crew.
  */
 function calcAvgMorale(crew) {
-  if (!crew.members.length) return 5;
+  if (!crew.members.length) {
+    crew.avgMorale = 5; // keep the stored value neutral, not stale
+    return 5;
+  }
   let sum = 0;
   for (const m of crew.members) sum += m.morale;
   crew.avgMorale = sum / crew.members.length;
@@ -140,8 +143,9 @@ function tickMorale(crew, economy) {
   crew.daysSincePay++;
 
   for (const m of crew.members) {
-    // Time at sea drains morale slowly
-    if (crew.daysSincePort > 5) {
+    // Time at sea drains morale slowly. A generous grace period keeps a new
+    // captain — still learning the map — from hitting morale trouble too soon.
+    if (crew.daysSincePort > 8) {
       m.morale = Math.max(1, m.morale - 0.3);
     }
 
@@ -173,7 +177,20 @@ function tickMorale(crew, economy) {
 
   // Mutiny check: if average morale drops below 3
   if (crew.avgMorale < 3 && crew.members.length >= 3 && Math.random() < 0.2) {
-    events.push({ type: 'mutiny' });
+    // A mutiny has real teeth: the crew ransacks the hold for back-pay. Their
+    // grievance vented, morale recovers to a shaky level so it doesn't death-
+    // spiral into a mutiny every single day — but losing gold gives the player
+    // a concrete reason to keep the crew paid and rested.
+    let goldLost = 0;
+    if (economy && economy.gold > 0) {
+      goldLost = Math.floor(economy.gold * 0.25);
+      economy.gold = Math.max(0, economy.gold - goldLost);
+    }
+    for (const m of crew.members) {
+      m.morale = Math.max(m.morale, 4);
+    }
+    calcAvgMorale(crew);
+    events.push({ type: 'mutiny', goldLost });
   }
 
   return events;

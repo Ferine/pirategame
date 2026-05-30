@@ -172,7 +172,7 @@ function _windDiff(dir, windDir) {
  * Per-frame helmsman update. Returns direction 0-7 or null (no change).
  * Mutates state (tack timer, stuck detection, disengage).
  */
-function updateHeading(state, ship, wind, map, dt) {
+function updateHeading(state, ship, wind, map, dt, visibility) {
   if (!state.active) return null;
 
   // Update distance remaining
@@ -187,11 +187,18 @@ function updateHeading(state, ship, wind, map, dt) {
     return null;
   }
 
-  // Explore mode: pick new waypoint when close
+  // Explore mode: pick the next unexplored cluster when close to the current
+  // waypoint, so the autopilot keeps charting the map instead of stopping at
+  // the first target. Only disengage when nothing is left to explore (handled
+  // inside _pickExploreWaypoint) or if visibility data is unavailable.
   if (state.mode === 'explore' && dist <= 5) {
-    // Need visibility to pick new waypoint — if not available, disengage
-    disengage(state, 'explored');
-    return null;
+    if (visibility && map && map.width && map.height) {
+      _pickExploreWaypoint(state, ship.x, ship.y, visibility, map.width, map.height);
+      if (!state.active) return null; // nothing left to explore
+    } else {
+      disengage(state, 'explored');
+      return null;
+    }
   }
 
   // Stuck detection: if position unchanged for 3 seconds

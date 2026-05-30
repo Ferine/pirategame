@@ -13,9 +13,17 @@ const { createFleetState } = require('../fleet/fleet');
 const { createCampaignState } = require('../story/campaign');
 const { createLogState } = require('../meta/captains-log');
 const { createCodecState } = require('../world/codec-ships');
+const { getControlsReference } = require('../world/onboarding');
 const { sattr } = require('../render/tiles');
 
-const BASE_MENU = ['Continue', 'New Game', 'Load Game', 'Quit'];
+const BASE_MENU = ['Continue', 'New Game', 'Load Game', 'How to Play', 'Quit'];
+
+const SUBTITLES = [
+  'A Pirate Game of the Northern Seas',
+  'Trade. Plunder. Apologise to no one.',
+  'The wind is your master. The English are merely your problem.',
+  'Where the herring are plentiful and the mercy is not.',
+];
 const DIFFICULTY_OPTIONS = ['easy', 'normal', 'hard'];
 
 class TitleMode {
@@ -57,6 +65,7 @@ class TitleMode {
     this.difficultyCursor = 1;
     this.pendingAction = null;
     this.hallOfFame = loadHallOfFame();
+    this.subtitle = SUBTITLES[Math.floor(Math.random() * SUBTITLES.length)];
 
     this.box = blessed.box({
       top: 'center',
@@ -130,6 +139,12 @@ class TitleMode {
     if (this.phase === 'difficulty') {
       return this._handleDifficultyInput(key);
     }
+    if (this.phase === 'howto') {
+      // Any key returns to the menu.
+      this.phase = 'menu';
+      this._updateContent();
+      return;
+    }
 
     if (key === 'up') {
       this.cursor = Math.max(0, this.cursor - 1);
@@ -172,6 +187,10 @@ class TitleMode {
           this._updateContent();
         }
         break;
+      case 'How to Play':
+        this.phase = 'howto';
+        this._updateContent();
+        break;
       case 'Quit':
         process.exit(0);
         break;
@@ -192,6 +211,9 @@ class TitleMode {
         Object.assign(this.gameState, ngState);
       } else {
         this._resetForNewGame();
+        // Show the first-run welcome for players who haven't seen it yet.
+        const p = this.gameState.persistent;
+        if (!p || !p.tutorialSeen) this.gameState._showIntro = true;
       }
       this.gameState.difficulty = diff;
       this.stateMachine.transition('OVERWORLD', this.gameState);
@@ -315,6 +337,31 @@ class TitleMode {
       return;
     }
 
+    if (this.phase === 'howto') {
+      const lines = [
+        '',
+        '{bold}{#d4a030-fg}           How to Play{/}',
+        '',
+        '{#8a9ab5-fg}    You captain a ship in the Kattegat strait.{/}',
+        '{#8a9ab5-fg}    Trade, fight, explore — and a conspiracy{/}',
+        '{#8a9ab5-fg}    will find you. Sail onto a port to dock;{/}',
+        '{#8a9ab5-fg}    sail into a ship to engage.{/}',
+        '',
+        '{#6a7a8a-fg}    Controls{/}',
+        '{#3a5a7a-fg}    ──────────────────────────────────────{/}',
+      ];
+      for (const [k, desc] of getControlsReference()) {
+        if (!k && !desc) { lines.push(''); continue; }
+        lines.push(`    {#c4a060-fg}${k.padEnd(20)}{/}{#8a9ab5-fg}${desc}{/}`);
+      }
+      lines.push('');
+      lines.push('{#3a4a5a-fg}     Press any key to return.{/}');
+
+      this.box.height = lines.length + 2;
+      this.box.setContent(lines.join('\n'));
+      return;
+    }
+
     if (this.phase === 'difficulty') {
       const label = this.pendingAction === 'ngplus' ? 'New Game+' : 'New Game';
       const waveHdr = this._waveStr(38, 3);
@@ -377,7 +424,7 @@ class TitleMode {
       `{#4a7a9a-fg}       ${w3}{/}`,
       '{#6a4a2a-fg}         \'-._____________________.-\'{/}',
       '',
-      '{#8a9ab5-fg}      A Pirate Game of the Northern Seas{/}',
+      `{#8a9ab5-fg}      ${this.subtitle}{/}`,
       `{#3a5a7a-fg}       ${w4}{/}`,
       '',
     ];

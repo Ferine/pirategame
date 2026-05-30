@@ -77,9 +77,14 @@ class EncounterMode {
     this.hailOutcome = null;
     this.hailCursor = 0;
 
-    // Build active choices — infiltrate only for English
+    // Build active choices — infiltrate only for English, and never for the
+    // Act 5 story boss: infiltration removes the (unique, non-respawning) ship
+    // but the stealth win has no Act 5 resolution, which would strand the
+    // campaign. The flagship must be defeated by cannon or boarding instead.
     this.choices = BASE_CHOICES.filter(c => {
-      if (c.id === 'infiltrate') return this.npc && this.npc.faction === FACTION.ENGLISH;
+      if (c.id === 'infiltrate') {
+        return this.npc && this.npc.faction === FACTION.ENGLISH && !this.npc.storyBoss;
+      }
       return true;
     });
 
@@ -417,6 +422,7 @@ class EncounterMode {
     c.enemy.crew = this.npc.crew;
     c.enemy.maxCrew = this.npc.maxCrew;
     c.enemy.masts = this.npc.masts;
+    c.enemy.maxMasts = this.npc.masts;
 
     // Store NPC id so we can remove after combat
     c.npcId = this.npc.id;

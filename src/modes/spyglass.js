@@ -256,9 +256,17 @@ class SpyglassMode {
     } else if (key === 'right') {
       this.sceneOffsetX -= 2;
     } else if (key === 'space') {
-      // Cycle ammo
-      const idx = AMMO_CYCLE.indexOf(combat.ammoType);
-      combat.ammoType = AMMO_CYCLE[(idx + 1) % AMMO_CYCLE.length];
+      // Cycle ammo, skipping depleted special types (iron is always available).
+      const inv = combat.ammoInventory;
+      let idx = AMMO_CYCLE.indexOf(combat.ammoType);
+      for (let n = 0; n < AMMO_CYCLE.length; n++) {
+        idx = (idx + 1) % AMMO_CYCLE.length;
+        const candidate = AMMO_CYCLE[idx];
+        if (candidate === 'iron' || !inv || inv[candidate] > 0) {
+          combat.ammoType = candidate;
+          break;
+        }
+      }
     } else if (key === 'enter') {
       // Lock aim - compute offset from crosshair center (0,0) to scene enemy position
       const wind = combat.wind;

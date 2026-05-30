@@ -286,6 +286,11 @@ function enemyAI(melee) {
 /**
  * Check if melee combat is over.
  */
+// Safety cap so a fight always terminates. Real fights end in well under a
+// dozen rounds; without this, a player who only ever dodges (dealing and taking
+// no damage) could stall forever — there is no flee option in melee.
+const MAX_MELEE_ROUNDS = 40;
+
 function checkMeleeEnd(melee) {
   if (melee.enemy.hp <= 0) {
     melee.victor = 'player';
@@ -293,6 +298,15 @@ function checkMeleeEnd(melee) {
   }
   if (melee.player.hp <= 0) {
     melee.victor = 'enemy';
+    return true;
+  }
+  if (melee.round >= MAX_MELEE_ROUNDS) {
+    // Stalemate — whoever is in better shape prevails (ties go to the player,
+    // who outlasted the foe).
+    const pFrac = melee.player.hp / melee.player.maxHp;
+    const eFrac = melee.enemy.hp / melee.enemy.maxHp;
+    melee.victor = pFrac >= eFrac ? 'player' : 'enemy';
+    melee.stalemate = true;
     return true;
   }
   return false;

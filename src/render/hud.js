@@ -89,7 +89,16 @@ function updateHUD(box, gameState) {
   }
 
   const line1 = `  Wind: ${windArrow} ${windDir} ${strengthBars}    Ship: ${shipDir}    Trim: ${trimLabel}    Speed: ${speed} kn${weatherStr}${timeStr}${convoyStr}${helmsmanStr}`;
-  const defaultLine2 = `  Pos: (${ship.x}, ${ship.y})    Hull: ${ship.hull}/${ship.maxHull}    ${ship.name}`;
+
+  // Hull, flashing red when critically low so the player gets a clear warning
+  // before sailing into a fatal fight.
+  const hullFrac = ship.maxHull > 0 ? ship.hull / ship.maxHull : 1;
+  const hullStr = hullFrac < 0.25
+    ? `{red-fg}{bold}Hull: ${ship.hull}/${ship.maxHull}{/bold}{/red-fg}`
+    : `Hull: ${ship.hull}/${ship.maxHull}`;
+  // Gold — the player's running score, otherwise only visible in port.
+  const goldStr = gameState.economy ? `    Gold: ${gameState.economy.gold} rds` : '';
+  const defaultLine2 = `  Pos: (${ship.x}, ${ship.y})    ${hullStr}${goldStr}    ${ship.name}    [?] Help`;
   const notice = (gameState.hudMessage || '').replace(/[{}]/g, '').trim();
   const line2 = notice ? `  Notice: ${notice}` : defaultLine2;
 

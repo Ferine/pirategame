@@ -24,13 +24,15 @@ const { updateConvoy, toggleFormation, checkConvoyArrival, checkConvoyFailed,
         getFormationBonus, updateBlockade } = require('../convoy/convoy');
 const { renderConvoyOverlay } = require('../convoy/convoy-hud');
 const { createJournalState, journalHandleInput, journalRender } = require('../story/journal-ui');
-const { getDifficulty } = require('../meta/legacy');
+const { getDifficulty, savePersistent } = require('../meta/legacy');
 const { logEvent, flushDay } = require('../meta/captains-log');
 const { createLogUIState, logUIHandleInput, logUIRender } = require('../meta/captains-log');
 const { createSeaObjectsState, updateSeaObjects, checkSeaObjectCollision, resolveSeaObject, SEA_OBJECT_TYPES } = require('../world/sea-objects');
 const { getCurrentAt, getCurrentSpeedMult } = require('../world/currents');
 const { createHelmsmanState, engagePort, engageExplore, disengage, updateHeading, getHelmsmanHUDText } = require('../world/helmsman');
 const { createHelmsmanUI, helmsmanHandleInput, helmsmanRender } = require('../world/helmsman-ui');
+const { getIntroPages, getControlsReference } = require('../world/onboarding');
+const { getCurrentObjective } = require('../story/campaign');
 
 // Movement direction vectors: N, NE, E, SE, S, SW, W, NW
 const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -62,6 +64,8 @@ class OverworldMode {
     this.viewW = 0;
     this.viewH = 0;
     this.showMap = false;
+    this.showHelp = false;
+    this.intro = null;       // { pages, index } when the first-run welcome is showing
     this.journalUI = null;
     this.logUI = null;
     this.helmsmanUI = null;
@@ -116,6 +120,15 @@ class OverworldMode {
     this.logUI = null;
     this.helmsmanUI = null;
 
+    // First-run onboarding: show the welcome sequence once, when a new game
+    // starts (set by the title screen). It is skippable and never repeats.
+    if (gameState._showIntro) {
+      gameState._showIntro = false;
+      this.intro = { pages: getIntroPages(gameState.ship ? gameState.ship.name : ''), index: 0 };
+    } else {
+      this.intro = null;
+    }
+
     // Cooldown to prevent re-triggering encounters immediately
     this.encounterCooldown = 1.0;
 
@@ -135,6 +148,11 @@ class OverworldMode {
 
   update(dt) {
     const { wind, ship } = this.gameState;
+
+    // Freeze the world while a modal overlay is open — the ship must not drift
+    // and encounters/weather must not fire behind the first-run welcome or the
+    // help screen before the player has acted.
+    if (this.intro || this.showHelp) return;
 
     // Track play time
     if (this.gameState.stats) {
@@ -188,7 +206,7 @@ class OverworldMode {
     // Helmsman autopilot steering
     if (this.gameState.helmsman && this.gameState.helmsman.active) {
       const helmsman = this.gameState.helmsman;
-      const newDir = updateHeading(helmsman, ship, wind, this.gameState.map, dt);
+      const newDir = updateHeading(helmsman, ship, wind, this.gameState.map, dt, this.visibility);
       if (newDir !== null) {
         ship.direction = newDir;
       }
@@ -300,7 +318,11 @@ class OverworldMode {
           if (ev.type === 'desertion') {
             this._pushNotice(`${ev.member.name} has deserted!`, 4.0);
           } else if (ev.type === 'mutiny') {
-            this._pushNotice('The crew threatens mutiny!', 5.0);
+            const msg = ev.goldLost > 0
+              ? `Mutiny! The crew seizes ${ev.goldLost} rds from the hold.`
+              : 'Mutiny! The crew ransacks the hold, but finds nothing.';
+            this._pushNotice(msg, 5.0);
+            logEvent(this.gameState.captainsLog, 'mutiny', {});
           }
         }
       }
@@ -456,9 +478,160 @@ class OverworldMode {
 
     // Achievement toast (top-right corner)
     this._renderAchievementToast(screen);
+
+    // Help overlay (drawn on top of everything)
+    if (this.showHelp) {
+      this._renderHelp(screen);
+    }
+
+    // First-run welcome (drawn above all else)
+    if (this.intro) {
+      this._renderIntro(screen);
+    }
+  }
+
+  _finishIntro() {
+    this.intro = null;
+    // Remember so the welcome never repeats; returning players reach it via the
+    // title screen's "How to Play".
+    if (this.gameState.persistent) {
+      this.gameState.persistent.tutorialSeen = true;
+      savePersistent(this.gameState.persistent);
+    }
+    // Proactively surface the current objective so a new captain knows the aim.
+    if (this.gameState.campaign) {
+      const obj = getCurrentObjective(this.gameState.campaign);
+      if (obj) this._pushNotice(obj, 6.0);
+    }
+  }
+
+  _renderIntro(screen) {
+    const { sattr } = require('../render/tiles');
+    const sw = screen.width, sh = screen.height;
+    const page = this.intro.pages[this.intro.index] || this.intro.pages[0];
+    const total = this.intro.pages.length;
+
+    const bodyW = page.lines.reduce((m, l) => Math.max(m, l.length), page.title.length);
+    const panelW = Math.min(Math.max(bodyW + 8, 40), sw - 4);
+    const panelH = Math.min(page.lines.length + 7, sh - 2);
+    const px = Math.floor((sw - panelW) / 2);
+    const py = Math.floor((sh - panelH) / 2);
+    const BG = sattr(252, 233);
+    const TXT = sattr(250, 233);
+    const TITLE = sattr(178, 233);
+    const DIM = sattr(244, 233);
+
+    for (let y = py; y < py + panelH; y++) {
+      const row = screen.lines[y];
+      if (!row) continue;
+      for (let x = px; x < px + panelW && x < row.length; x++) {
+        row[x][0] = BG; row[x][1] = ' ';
+      }
+      row.dirty = true;
+    }
+    this._drawHelpBorder(screen, px, py, panelW, panelH);
+
+    const title = ` ${page.title} `;
+    this._writeHelpText(screen, py, px + Math.floor((panelW - title.length) / 2), title, TITLE);
+
+    for (let i = 0; i < page.lines.length && i < panelH - 4; i++) {
+      this._writeHelpText(screen, py + 2 + i, px + 3, page.lines[i], TXT);
+    }
+
+    // Footer: page dots + controls
+    const dots = Array.from({ length: total }, (_, i) => (i === this.intro.index ? '●' : '·')).join(' ');
+    this._writeHelpText(screen, py + panelH - 2, px + 3, dots, DIM);
+    const last = this.intro.index >= total - 1;
+    const hint = last ? 'Enter: Begin    Q: Skip' : 'Enter: Next    Q: Skip';
+    this._writeHelpText(screen, py + panelH - 2, px + panelW - hint.length - 3, hint, DIM);
+  }
+
+  _renderHelp(screen) {
+    const { sattr } = require('../render/tiles');
+    const sw = screen.width, sh = screen.height;
+    const lines = getControlsReference();
+    const panelW = Math.min(54, sw - 4);
+    const panelH = Math.min(lines.length + 4, sh - 2);
+    const px = Math.floor((sw - panelW) / 2);
+    const py = Math.floor((sh - panelH) / 2);
+    const BG = sattr(252, 233);
+    const KEY = sattr(220, 233);
+    const TXT = sattr(250, 233);
+    const TITLE = sattr(178, 233);
+
+    for (let y = py; y < py + panelH; y++) {
+      const row = screen.lines[y];
+      if (!row) continue;
+      for (let x = px; x < px + panelW && x < row.length; x++) {
+        row[x][0] = BG;
+        row[x][1] = ' ';
+      }
+      row.dirty = true;
+    }
+    this._drawHelpBorder(screen, px, py, panelW, panelH);
+
+    const title = ' Controls ';
+    this._writeHelpText(screen, py, px + Math.floor((panelW - title.length) / 2), title, TITLE);
+
+    for (let i = 0; i < lines.length && i < panelH - 3; i++) {
+      const [k, desc] = lines[i];
+      const y = py + 2 + i;
+      this._writeHelpText(screen, y, px + 3, k.padEnd(16), KEY);
+      this._writeHelpText(screen, y, px + 3 + 16, desc, TXT);
+    }
+  }
+
+  _drawHelpBorder(screen, px, py, w, h) {
+    const { sattr } = require('../render/tiles');
+    const B = sattr(178, 233);
+    const put = (y, x, ch) => {
+      const row = screen.lines[y];
+      if (row && x >= 0 && x < row.length) { row[x][0] = B; row[x][1] = ch; row.dirty = true; }
+    };
+    put(py, px, '┌');
+    put(py, px + w - 1, '┐');
+    put(py + h - 1, px, '└');
+    put(py + h - 1, px + w - 1, '┘');
+    for (let x = px + 1; x < px + w - 1; x++) { put(py, x, '─'); put(py + h - 1, x, '─'); }
+    for (let y = py + 1; y < py + h - 1; y++) { put(y, px, '│'); put(y, px + w - 1, '│'); }
+  }
+
+  _writeHelpText(screen, y, x, text, attr) {
+    const row = screen.lines[y];
+    if (!row) return;
+    for (let i = 0; i < text.length; i++) {
+      const cx = x + i;
+      if (cx >= 0 && cx < row.length) { row[cx][0] = attr; row[cx][1] = text[i]; }
+    }
+    row.dirty = true;
   }
 
   handleInput(key) {
+    // First-run welcome takes priority: Space/Enter advance, Q skips the rest.
+    if (this.intro) {
+      if (key === 'q') {
+        this._finishIntro();
+      } else if (key === 'enter' || key === 'space' || key === 'right' || key === 'down') {
+        this.intro.index++;
+        if (this.intro.index >= this.intro.pages.length) {
+          this._finishIntro();
+        }
+      } else if (key === 'left' || key === 'up') {
+        this.intro.index = Math.max(0, this.intro.index - 1);
+      }
+      return;
+    }
+
+    // Help overlay: any key dismisses it.
+    if (this.showHelp) {
+      this.showHelp = false;
+      return;
+    }
+    if (key === '?') {
+      this.showHelp = true;
+      return;
+    }
+
     // Helmsman menu overlay takes priority
     if (this.helmsmanUI) {
       const result = helmsmanHandleInput(key, this.helmsmanUI);
@@ -510,20 +683,25 @@ class OverworldMode {
     }
 
     if (key === 'v') {
-      // If a marked codec ship is in sight, eavesdrop instead of opening combat.
+      // If a marked codec ship is in sight, eavesdrop on it (codec spyglass).
       const codecShip = this.gameState.codec ? findCodecShipInSight(this.gameState) : null;
       if (codecShip) {
         this.gameState.codec.activeShipId = codecShip.id;
         this.stateMachine.transition('CODEC', this.gameState);
         return;
       }
-      this.gameState.combat = createCombatState(this.gameState);
-      this.stateMachine.transition('SPYGLASS', this.gameState);
+      // Debug-only: force a combat encounter from open water.
+      if (process.env.KK_DEBUG) {
+        this.gameState.combat = createCombatState(this.gameState);
+        this.stateMachine.transition('SPYGLASS', this.gameState);
+      }
       return;
     }
 
     if (key === 'p') {
-      // Find nearest port for testing
+      // Debug-only: teleport into the nearest port (bypasses the harbor approach
+      // and reputation gates). Not available in shipping builds.
+      if (!process.env.KK_DEBUG) return;
       const port = this._findNearestPort();
       if (port) {
         this.gameState.portInfo = { name: port.name, desc: port.desc };

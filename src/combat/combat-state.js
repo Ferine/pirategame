@@ -4,19 +4,19 @@ const { getFlagship, getEffectiveStats } = require('../fleet/fleet');
 
 // Enemy ship templates for test combat
 const ENEMY_TEMPLATES = [
-  { name: 'Swedish Corvette', hull: 80, crew: 40, masts: 2 },
-  { name: 'Danish Brig', hull: 60, crew: 30, masts: 2 },
-  { name: 'Hanseatic Cog', hull: 100, crew: 50, masts: 3 },
-  { name: 'Norwegian Sloop', hull: 50, crew: 25, masts: 1 },
-  { name: 'Prussian Frigate', hull: 120, crew: 60, masts: 3 },
+  { name: 'Swedish Corvette', hull: 55, crew: 40, masts: 2 },
+  { name: 'Danish Brig', hull: 40, crew: 30, masts: 2 },
+  { name: 'Hanseatic Cog', hull: 65, crew: 50, masts: 3 },
+  { name: 'Norwegian Sloop', hull: 35, crew: 25, masts: 1 },
+  { name: 'Prussian Frigate', hull: 80, crew: 60, masts: 3 },
 ];
 
 // English flagship template for Act 5 story boss
-const ENGLISH_FLAGSHIP = { name: 'HMS Sovereign', hull: 200, crew: 100, masts: 4 };
+const ENGLISH_FLAGSHIP = { name: 'HMS Sovereign', hull: 150, crew: 100, masts: 4 };
 
 // Damage tables by ammo type: [minHull, maxHull, minCrew, maxCrew, mastChance]
 const AMMO_DAMAGE = {
-  iron:  { hull: [15, 25], crew: [0, 3],  masts: 0 },
+  iron:  { hull: [20, 30], crew: [0, 3],  masts: 0 },
   chain: { hull: [5, 10],  crew: [0, 2],  masts: 1 },   // mast damage if power>60% and aim<threshold
   grape: { hull: [2, 5],   crew: [8, 15], masts: 0 },
 };
@@ -89,6 +89,13 @@ function randRange(min, max) {
 }
 
 function calculatePlayerDamage(combat) {
+  // Enforce ammo limits: special ammo (chain/grape) is a finite per-combat
+  // resource. If the selected type is depleted, fall back to iron (the basic,
+  // always-available shot) so the count actually means something.
+  if (combat.ammoInventory && combat.ammoType !== 'iron'
+      && combat.ammoInventory[combat.ammoType] <= 0) {
+    combat.ammoType = 'iron';
+  }
   const { aim, power, ammoType } = combat;
   const dist = Math.sqrt(aim.offsetX * aim.offsetX + aim.offsetY * aim.offsetY);
   const dmgTable = AMMO_DAMAGE[ammoType];
@@ -104,15 +111,21 @@ function calculatePlayerDamage(combat) {
 
   const powerScale = power / 100;
   const cannonMult = combat.player && combat.player.cannons ? (combat.player.cannons / 2) : 1.0;
-  const hullDmg = Math.round(randRange(dmgTable.hull[0], dmgTable.hull[1]) * powerScale * hitQuality * cannonMult);
-  const crewDmg = Math.round(randRange(dmgTable.crew[0], dmgTable.crew[1]) * powerScale * hitQuality * cannonMult);
+
+  // Critical hit: nailing the power gauge's sweet spot on a direct hit rewards
+  // skill with a damage bonus — turns the gauge minigame into a payoff moment.
+  const crit = !!(combat.powerPerfect && dist < HIT_RADIUS);
+  const critMult = crit ? 1.5 : 1.0;
+
+  const hullDmg = Math.round(randRange(dmgTable.hull[0], dmgTable.hull[1]) * powerScale * hitQuality * cannonMult * critMult);
+  const crewDmg = Math.round(randRange(dmgTable.crew[0], dmgTable.crew[1]) * powerScale * hitQuality * cannonMult * critMult);
 
   let mastDmg = 0;
   if (ammoType === 'chain' && power > 60 && dist < HIT_RADIUS) {
     mastDmg = dmgTable.masts;
   }
 
-  return { hit: true, hullDmg, crewDmg, mastDmg, hitQuality };
+  return { hit: true, hullDmg, crewDmg, mastDmg, hitQuality, crit };
 }
 
 function applyDamageToEnemy(combat, dmg) {
@@ -139,7 +152,11 @@ function enemyFire(combat, damageTakenMult) {
   const dmgMult = damageTakenMult || 1.0;
   const e = combat.enemy;
   const crewRatio = e.crew / e.maxCrew;
-  const accuracy = 0.5 + crewRatio * 0.3;
+  // A dismasted enemy maneuvers and aims worse, so chain shot (which strips
+  // masts) now has a real tactical payoff. Full masts leaves accuracy unchanged
+  // (max 0.8); a fully dismasted ship loses up to 0.2.
+  const mastRatio = (e.maxMasts && e.maxMasts > 0) ? Math.min(1, e.masts / e.maxMasts) : 1;
+  const accuracy = 0.5 + crewRatio * 0.3 - (1 - mastRatio) * 0.2;
   const hits = Math.random() < accuracy;
 
   if (!hits) {

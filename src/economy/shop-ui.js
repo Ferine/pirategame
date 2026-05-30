@@ -19,6 +19,7 @@ const ROW_SELECTED = sattr(233, 178);  // dark on amber (highlighted)
 const GOLD_COLOR = sattr(178, 233);
 const GOOD_COLOR = sattr(252, 233);
 const CANT_AFFORD = sattr(239, 233);
+const DEAL_GOOD = sattr(40, 233);   // green — a favorable price vs base value
 const HELP_COLOR = sattr(240, 233);
 const TAB_ACTIVE = sattr(233, 94);
 const TAB_INACTIVE = sattr(94, 233);
@@ -295,7 +296,7 @@ function shopRender(screen, shop, gameState) {
 
   // Help line
   const help = shop.type === 'market'
-    ? ' \u2190\u2192:Buy/Sell  \u2191\u2193:Select  Space:Confirm  Enter/Q:Close '
+    ? ' \u2190\u2192:Buy/Sell  \u2191\u2193:Select  Space:Confirm  Enter/Q:Close   (* = good deal) '
     : ' \u2191\u2193:Select  Space:Purchase  Enter/Q:Close ';
   _writeText(screen, py + panelH - 2, px + Math.floor((panelW - help.length) / 2), help, HELP_COLOR);
 }
@@ -342,7 +343,12 @@ function _renderMarket(screen, shop, eco, px, py, panelW, panelH) {
     const canDo = shop.tab === 'buy'
       ? (eco.gold >= price && cargoCount(eco) < eco.cargoMax)
       : (owned > 0);
-    const priceAttr = isSelected ? ROW_SELECTED : (canDo ? GOOD_COLOR : CANT_AFFORD);
+    // Arbitrage signal: green when this is a good deal vs the good's base value
+    // (cheap to buy here, or dear to sell here). Makes profitable routes legible
+    // without forcing the player to memorise a price matrix.
+    const favorable = shop.tab === 'buy' ? (price < good.base) : (price > good.base);
+    let priceAttr = isSelected ? ROW_SELECTED : (canDo ? GOOD_COLOR : CANT_AFFORD);
+    if (!isSelected && favorable) priceAttr = DEAL_GOOD;
 
     // Highlight row background if selected
     if (isSelected) {
@@ -358,7 +364,7 @@ function _renderMarket(screen, shop, eco, px, py, panelW, panelH) {
     const pointer = isSelected ? '\u25B6 ' : '  '; // ▶
     _writeText(screen, rowY, colName - 2, pointer, rowAttr);
     _writeText(screen, rowY, colName, good.name, rowAttr);
-    _writeText(screen, rowY, colPrice, `${price} rds`, priceAttr);
+    _writeText(screen, rowY, colPrice, `${price} rds${favorable ? ' *' : ''}`, priceAttr);
     _writeText(screen, rowY, colOwned, `${owned}`, rowAttr);
   }
 }

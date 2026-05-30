@@ -108,6 +108,11 @@ class InputHandler {
       this.stateMachine.handleInput(key.name);
     });
 
+    // ? for the in-game help / controls overlay
+    this.screen.key(['?'], () => {
+      this.stateMachine.handleInput('?');
+    });
+
     // Ctrl-C to exit
     this.screen.key(['C-c'], () => {
       process.exit(0);

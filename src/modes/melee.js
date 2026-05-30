@@ -469,12 +469,29 @@ class MeleeMode {
   _exitCombat() {
     const returnMode = this.melee.returnMode;
 
-    // Remove NPC ship if boarding
+    // Remove NPC ship if boarding, and advance the campaign — boarding is a
+    // first-class way to defeat a ship, so it must trigger the same story beats
+    // (Act 0 letter, Act 3 dispatches, Act 5 ending) that cannon combat does.
     if (this.melee.context === 'boarding' && this.melee.victor === 'player') {
       const { removeNPCShip } = require('../world/npc-ships');
+      let faction = 'pirate';
       if (this.gameState.npcShips && this.gameState.boardingNpcId) {
+        const npc = this.gameState.npcShips.find(s => s.id === this.gameState.boardingNpcId);
+        if (npc) faction = npc.faction;
         removeNPCShip(this.gameState.npcShips, this.gameState.boardingNpcId);
         this.gameState.boardingNpcId = null;
+      }
+
+      if (this.gameState.campaign) {
+        const { applyShipVictoryToCampaign, finalizeCampaignCompletion } = require('../story/combat-resolution');
+        const notices = applyShipVictoryToCampaign(this.gameState, faction);
+        if (notices.length) {
+          this.gameState.questNotices = (this.gameState.questNotices || []).concat(notices);
+        }
+        if (finalizeCampaignCompletion(this.gameState)) {
+          this.stateMachine.transition('CREDITS', this.gameState);
+          return;
+        }
       }
     }
 

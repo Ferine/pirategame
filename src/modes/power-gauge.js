@@ -40,8 +40,10 @@ class PowerGaugeMode {
     if (this.locked) {
       this.lockFlashTimer -= dt;
       if (this.lockFlashTimer <= 0) {
-        // Write power and transition
+        // Write power and transition. Flag a "perfect" lock near the 75% sweet
+        // spot so a direct hit this round lands as a critical.
         this.gameState.combat.power = this.gaugeValue;
+        this.gameState.combat.powerPerfect = Math.abs(this.gaugeValue - 75) < 6;
         this.stateMachine.transition('DRONE_CAM', this.gameState);
       }
       return;

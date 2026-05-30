@@ -13,6 +13,7 @@ const { createTreasureMap } = require('../island/treasure');
 const { syncFromGameState } = require('../fleet/fleet');
 const { getDifficulty } = require('../meta/legacy');
 const { logEvent } = require('../meta/captains-log');
+const { triggerBell } = require('../render/crt-filter');
 
 // Sub-phases within drone cam
 const PHASE_FLIGHT = 0;
@@ -57,6 +58,9 @@ class DroneCamMode {
     this.enemyShotResult = null;
     this.smokePuffs = [];
     this.lastSmokeTime = 0;
+    this.lootSummary = null;   // plunder shown on the victory screen
+    this._skip = false;        // player tapped to skip a non-interactive pause
+    this._pendingBell = null;  // 'hit' | 'victory' — rung on next render
   }
 
   exit() {}
@@ -85,15 +89,16 @@ class DroneCamMode {
         applyDamageToEnemy(this.gameState.combat, this.shotResult);
         this.phase = PHASE_IMPACT;
         this.impactTimer = 0;
+        if (this.shotResult.hit) this._pendingBell = 'hit';
       }
     } else if (this.phase === PHASE_IMPACT) {
       this.impactTimer += dt;
-      const impactDuration = this.shotResult.hit ? 1.5 : 1.0;
-      if (this.impactTimer >= impactDuration) {
+      const impactDuration = this.shotResult.hit ? 1.2 : 0.7;
+      if (this.impactTimer >= impactDuration || this._skip) {
+        this._skip = false;
         // Check if combat ended
         if (checkCombatEnd(this.gameState.combat)) {
-          this.phase = PHASE_RESULT;
-          this.resultTimer = 0;
+          this._toResult();
         } else {
           // Enemy fires
           this.phase = PHASE_ENEMY_FIRE;
@@ -104,14 +109,15 @@ class DroneCamMode {
       }
     } else if (this.phase === PHASE_ENEMY_FIRE) {
       this.enemyFireTimer += dt;
-      if (this.enemyFireTimer >= 2.0) {
+      if (this.enemyFireTimer >= 1.3 || this._skip) {
+        this._skip = false;
         // Check if combat ended after enemy fire
         if (checkCombatEnd(this.gameState.combat)) {
-          this.phase = PHASE_RESULT;
-          this.resultTimer = 0;
+          this._toResult();
         } else {
-          // Next round
+          // Next round — clear the perfect-shot flag so the next shot earns its own.
           this.gameState.combat.round++;
+          this.gameState.combat.powerPerfect = false;
           this.stateMachine.transition('SPYGLASS', this.gameState);
         }
       }
@@ -123,10 +129,69 @@ class DroneCamMode {
     }
   }
 
+  // Enter the result screen, resolving and capturing the plunder so the victory
+  // screen can actually show what was won (loot was previously applied invisibly
+  // after the screen had already gone).
+  _toResult() {
+    this.phase = PHASE_RESULT;
+    this.resultTimer = 0;
+    if (this.gameState.combat.victor === 'player') {
+      this.lootSummary = this._resolveSpoils();
+      this._pendingBell = 'victory';
+    }
+  }
+
+  _resolveSpoils() {
+    const combat = this.gameState.combat;
+    const gs = this.gameState;
+    const summary = { gold: 0, cargo: {}, treasureMap: null };
+    if (combat._spoilsDone || !combat.npcId || !gs.economy) return summary;
+    combat._spoilsDone = true;
+
+    const goldMult = getDifficulty(gs).goldMult;
+    const lootGold = Math.round((45 + Math.floor(Math.random() * 45)) * goldMult);
+    gs.economy.gold += lootGold;
+    summary.gold = lootGold;
+
+    if (gs.stats) {
+      gs.stats.shipsSunk++;
+      gs.stats.goldEarned += lootGold;
+    }
+    logEvent(gs.captainsLog, 'combat_win', { name: combat.enemy.name });
+
+    const isMerchant = combat.npcFaction === 'merchant';
+    const cargoChance = isMerchant ? 0.7 : 0.3;
+    const goodIds = ['cod', 'herring', 'grain', 'timber', 'iron', 'gunpowder', 'silk', 'spices'];
+    for (const gid of goodIds) {
+      if (Math.random() < cargoChance) {
+        const qty = isMerchant ? 1 + Math.floor(Math.random() * 3) : 1;
+        gs.economy.cargo[gid] = (gs.economy.cargo[gid] || 0) + qty;
+        summary.cargo[gid] = (summary.cargo[gid] || 0) + qty;
+      }
+    }
+
+    if (Math.random() < 0.15 && gs.treasureMaps && gs.map && gs.map.islands) {
+      const unmapped = gs.map.islands.filter(isl =>
+        !gs.treasureMaps.some(tm => tm.islandId === isl.id && !tm.found));
+      if (unmapped.length > 0) {
+        const target = unmapped[Math.floor(Math.random() * unmapped.length)];
+        gs.treasureMaps.push(createTreasureMap(target.id, target.name));
+        summary.treasureMap = target.name;
+      }
+    }
+    return summary;
+  }
+
   render(screen) {
     const w = screen.width;
     const h = screen.height;
     const combat = this.gameState.combat;
+
+    // Percussive audio juice: ring the terminal bell on a hit and on victory.
+    if (this._pendingBell) {
+      triggerBell(screen);
+      this._pendingBell = null;
+    }
 
     if (this.phase === PHASE_FLIGHT) {
       this._renderFlightScene(screen, w, h, combat);
@@ -326,6 +391,11 @@ class DroneCamMode {
       renderParticles(screen, particles, splashCX, splashCY);
     }
 
+    // Critical hit banner — reward for nailing the power gauge.
+    if (this.shotResult.crit) {
+      this._drawCentered(screen, h - 4, '✦ CRITICAL HIT! ✦', sattr(231, 233));
+    }
+
     // Damage readout at bottom
     const dmgText = this.shotResult.hit
       ? `HIT! Hull -${this.shotResult.hullDmg}  Crew -${this.shotResult.crewDmg}${this.shotResult.mastDmg ? '  Mast -' + this.shotResult.mastDmg : ''}`
@@ -389,14 +459,31 @@ class DroneCamMode {
     const cy = Math.floor(h / 2);
 
     if (combat.victor === 'player') {
-      this._drawCentered(screen, cy - 2, 'V I C T O R Y !', sattr(226, 233));
-      this._drawCentered(screen, cy, `The ${combat.enemy.name} has been defeated!`, sattr(178, 233));
+      this._drawCentered(screen, cy - 3, 'V I C T O R Y !', sattr(226, 233));
+      this._drawCentered(screen, cy - 1, `The ${combat.enemy.name} has been defeated!`, sattr(178, 233));
+
+      // Show the plunder — the reward the player actually earned.
+      const loot = this.lootSummary;
+      if (loot) {
+        const parts = [];
+        if (loot.gold) parts.push(`${loot.gold} rds`);
+        const cargoEntries = Object.entries(loot.cargo);
+        for (const [g, q] of cargoEntries) parts.push(`${q} ${g}`);
+        if (parts.length) {
+          this._drawCentered(screen, cy + 1, `Plundered: ${parts.join(', ')}`, sattr(220, 233));
+        } else {
+          this._drawCentered(screen, cy + 1, 'Plundered: nothing of worth', sattr(244, 233));
+        }
+        if (loot.treasureMap) {
+          this._drawCentered(screen, cy + 2, `A tattered chart to ${loot.treasureMap} falls from the wreck!`, sattr(214, 233));
+        }
+      }
     } else {
       this._drawCentered(screen, cy - 2, 'D E F E A T', sattr(196, 233));
       this._drawCentered(screen, cy, `The ${combat.enemy.name} has bested you...`, sattr(167, 233));
     }
 
-    this._drawCentered(screen, cy + 2, 'Returning to sea...', sattr(248, 233));
+    this._drawCentered(screen, h - 2, 'Press ENTER to continue', sattr(248, 233));
   }
 
   _drawCentered(screen, row, text, attr) {
@@ -439,86 +526,20 @@ class DroneCamMode {
         }
       }
 
-      if (combat.victor === 'player' && this.gameState.economy) {
-        // Loot: gold + random cargo
-        const goldMult = getDifficulty(this.gameState).goldMult;
-        const lootGold = Math.round((20 + Math.floor(Math.random() * 40)) * goldMult);
-        this.gameState.economy.gold += lootGold;
-
-        // Track stats
-        if (this.gameState.stats) {
-          this.gameState.stats.shipsSunk++;
-          this.gameState.stats.goldEarned += lootGold;
-        }
-
-        // Captain's log
-        logEvent(this.gameState.captainsLog, 'combat_win', { name: combat.enemy.name });
-
-        // Merchants carry more cargo
-        const isMerchant = combat.npcFaction === 'merchant';
-        const cargoChance = isMerchant ? 0.7 : 0.3;
-        const goodIds = ['cod', 'herring', 'grain', 'timber', 'iron', 'gunpowder', 'silk', 'spices'];
-        const eco = this.gameState.economy;
-
-        for (const gid of goodIds) {
-          if (Math.random() < cargoChance) {
-            const qty = isMerchant ? 1 + Math.floor(Math.random() * 3) : 1;
-            eco.cargo[gid] = (eco.cargo[gid] || 0) + qty;
-          }
-        }
-
-        // 15% chance to find a treasure map
-        if (Math.random() < 0.15 && this.gameState.treasureMaps && this.gameState.map && this.gameState.map.islands) {
-          const islands = this.gameState.map.islands;
-          // Find an island without an existing map
-          const unmapped = islands.filter(isl =>
-            !this.gameState.treasureMaps.some(tm => tm.islandId === isl.id && !tm.found)
-          );
-          if (unmapped.length > 0) {
-            const target = unmapped[Math.floor(Math.random() * unmapped.length)];
-            this.gameState.treasureMaps.push(createTreasureMap(target.id, target.name));
-          }
-        }
+      // Loot/stats/log/treasure are resolved at the result screen (_resolveSpoils)
+      // so the plunder can be displayed. Fall back to resolving here in case the
+      // result transition was bypassed.
+      if (combat.victor === 'player' && this.gameState.economy && !combat._spoilsDone) {
+        this._resolveSpoils();
       }
     }
 
-    // Campaign triggers
+    // Campaign triggers (shared with boarding/infiltration win paths)
     if (this.gameState.campaign && combat.victor === 'player') {
-      const { checkActOneTrigger, advanceCampaign, addKeyItem } = require('../story/campaign');
-
-      // Act 0 -> 1: First victory triggers letter
-      if (checkActOneTrigger(this.gameState.campaign)) {
-        addKeyItem(this.gameState.campaign, 'letter');
-        const effects = advanceCampaign(this.gameState.campaign, 'combat_victory', {}, this.gameState.reputation);
-        for (const eff of effects) {
-          if (eff.type === 'notice') {
-            this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
-          }
-        }
-      }
-
-      // Act 3: Dispatch interception
-      if (this.gameState.campaign.act === 3 && this.gameState.campaign.phase === 'dispatch_hunt'
-          && combat.npcFaction === 'english') {
-        addKeyItem(this.gameState.campaign, 'dispatches');
-        const effects = advanceCampaign(this.gameState.campaign, 'combat_victory',
-          { faction: 'english' }, this.gameState.reputation);
-        for (const eff of effects) {
-          if (eff.type === 'notice') {
-            this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
-          }
-        }
-      }
-
-      // Act 5: Final battle
-      if (this.gameState.campaign.act === 5) {
-        const effects = advanceCampaign(this.gameState.campaign, 'combat_victory',
-          { faction: combat.npcFaction }, this.gameState.reputation);
-        for (const eff of effects) {
-          if (eff.type === 'notice') {
-            this.gameState.questNotices = (this.gameState.questNotices || []).concat([eff.message]);
-          }
-        }
+      const { applyShipVictoryToCampaign } = require('../story/combat-resolution');
+      const notices = applyShipVictoryToCampaign(this.gameState, combat.npcFaction);
+      if (notices.length) {
+        this.gameState.questNotices = (this.gameState.questNotices || []).concat(notices);
       }
     }
 
@@ -540,24 +561,8 @@ class DroneCamMode {
     this.gameState.combat = null;
 
     // If campaign just completed (Act 5 ending set), go to credits + Hall of Fame
-    if (this.gameState.campaign && this.gameState.campaign.ending) {
-      const { addHallOfFameEntry } = require('../meta/legacy');
-      addHallOfFameEntry({
-        name: this.gameState.ship.name,
-        ending: this.gameState.campaign.ending,
-        gold: this.gameState.economy ? this.gameState.economy.gold : 0,
-        shipsSunk: this.gameState.stats ? this.gameState.stats.shipsSunk : 0,
-        day: this.gameState.quests ? this.gameState.quests.day : 0,
-        playTimeMinutes: this.gameState.stats ? this.gameState.stats.playTimeMinutes : 0,
-        difficulty: this.gameState.difficulty || 'normal',
-      });
-      if (this.gameState.stats) this.gameState.stats.campaignsCompleted++;
-      if (this.gameState.persistent) {
-        this.gameState.persistent.stats.campaignsCompleted =
-          Math.max(this.gameState.persistent.stats.campaignsCompleted || 0, 1);
-        const { savePersistent } = require('../meta/legacy');
-        savePersistent(this.gameState.persistent);
-      }
+    const { finalizeCampaignCompletion } = require('../story/combat-resolution');
+    if (finalizeCampaignCompletion(this.gameState)) {
       this.stateMachine.transition('CREDITS', this.gameState);
       return;
     }
@@ -566,10 +571,13 @@ class DroneCamMode {
   }
 
   handleInput(key) {
-    // No manual input during drone cam - it's automated
-    // But allow early skip in result phase
-    if (this.phase === PHASE_RESULT && this.resultTimer > 1.0 && key === 'enter') {
+    if (key !== 'enter' && key !== 'space') return;
+    // Let the player skip the non-interactive pauses (impact / enemy fire) and
+    // the result screen, so combat never feels like watching timers.
+    if (this.phase === PHASE_RESULT && this.resultTimer > 0.8) {
       this._endCombat();
+    } else if (this.phase === PHASE_IMPACT || this.phase === PHASE_ENEMY_FIRE) {
+      this._skip = true;
     }
   }
 }

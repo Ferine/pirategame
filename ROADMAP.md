@@ -409,6 +409,42 @@ test/
 
 **Files:** `port/port-profiles.js`, `port/town-map.js`, `port/town-npcs.js`, `modes/port.js`
 
+### Phase 25: Release Hardening — COMPLETE
+
+Bug-fixing and UX pass to bring the game to a Steam-releasable state. See `RELEASE.md`.
+
+- [x] **Port/island reachability** — `map-gen.js` now guarantees every port (incl. Helsingør, which gates campaign Act 4) and island is reachable by ship, carving a channel for enclosed pockets (e.g. Aalborg's fjord). Previously 3/9 ports were unreachable on the shipped map. Regression test added.
+- [x] **Campaign soft-lock fixes** — Act 0/3/5 advance via cannon **or** boarding **or** (Act 3) infiltration through a shared `story/combat-resolution.js`; the Act 5 boss can no longer be stranded by infiltration. Previously only cannon victories advanced the story.
+- [x] **Melee stalemate breaker** — fights always terminate (round cap), closing the infinite-dodge soft-lock.
+- [x] **Ammo enforcement** — chain/grape are now finite per-combat; depleted ammo falls back to iron.
+- [x] **NPC clash fix** — a ship sunk mid-tick no longer keeps "fighting" and sinking others.
+- [x] **Helmsman explore** — auto-explore now chains to successive unexplored clusters instead of stopping at the first.
+- [x] **Achievements** — `fleet_admiral` (peak fleet size) and `convoy_master` (convoys completed) are now reachable.
+- [x] **New Game+** — codec state resets so codec ships spawn in NG+.
+- [x] **Mutiny consequence** — mutiny now seizes gold and vents morale (real stakes, no death-spiral) with a captain's-log entry.
+- [x] **Crash resilience** — game loop catches errors, logs to `~/.kattegat-kaper/crash.log`, and keeps running; fails fast under `KK_DEBUG`.
+- [x] **Minimum terminal size** — below 80×24 the game shows a "please enlarge" notice instead of rendering garbage.
+- [x] **Onboarding** — first-run welcome sequence (skippable, 3 pages: setting, sailing, making your way) shown once on a new game; surfaces the current objective on close; world simulation pauses behind modal overlays. Title screen gains a "How to Play" entry. Persistent `tutorialSeen` flag; shared content in `world/onboarding.js`.
+- [x] **In-game help** — `?` opens a controls overlay in the overworld; HUD shows a `[?] Help` hint.
+- [x] **Debug keys gated** — `V` force-combat and `P` port-teleport are disabled unless `KK_DEBUG` is set.
+- [x] **Test/QA tooling** — `npm run fuzz` (headless mode fuzzer) and `npm run smoke` (PTY launch test) added alongside `npm test` (533 tests).
+
+**Files:** `world/map-gen.js`, `story/combat-resolution.js` (new), `world/onboarding.js` (new), `modes/drone-cam.js`, `modes/melee.js`, `modes/stealth.js`, `modes/encounter.js`, `modes/overworld.js`, `modes/title.js`, `combat/melee-state.js`, `combat/combat-state.js`, `modes/spyglass.js`, `world/npc-ships.js`, `world/helmsman.js`, `world/quests.js`, `meta/legacy.js`, `crew/crew.js`, `meta/captains-log.js`, `engine/game-loop.js`, `engine/input.js`, `render/hud.js`, `tools/mode-fuzz.js` (new), `tools/pty-smoke.py` (new), `RELEASE.md` (new), and regression tests under `test/scenarios/`.
+
+### Phase 26: Fun & Mass-Market Pass — COMPLETE
+
+Tuning and feel pass to make the core loop fun and approachable while keeping the retro-quirky charm. Driven by three design reviews (balance/pacing, game-feel/juice, charm/voice).
+
+- [x] **Snappier combat** — enemy hull lowered and iron damage raised so a clean fight is ~2-5 rounds, not 7-10; HMS Sovereign 200→150. Impact/enemy-fire pauses trimmed and made skippable (Enter/Space).
+- [x] **Critical hits** — nailing the power-gauge sweet spot on a direct hit deals 1.5× and shows a "CRITICAL HIT!" banner — the minigame now has a skill payoff.
+- [x] **Combat juice** — the terminal bell rings on hits and victory (previously `triggerBell` was dead code); the victory screen now shows the plunder (gold/cargo/treasure map) that was previously awarded invisibly.
+- [x] **Reward cadence** — combat loot raised (~45-90 gold); first meaningful upgrades cheaper (cargo 80→60, cannon 100→75, sails 150→120).
+- [x] **Gentler onboarding** — morale grace period at sea 5→8 days; gold and a low-hull red warning now shown on the overworld HUD.
+- [x] **Trade legibility** — market prices show green + `*` when a good is a favourable deal vs base value, so profitable routes are discoverable without memorising a price matrix.
+- [x] **Voice & charm** — weather-aware dry port-arrival lines (the signature "It is raining. This is not news."); expanded captain's-log pools (mutiny/barrel/melee/clash), more message-bottle gags, richer ship-name lists, in-voice building prompts, rotating title subtitles.
+
+**Files:** `combat/combat-state.js`, `modes/power-gauge.js`, `modes/drone-cam.js`, `economy/goods.js`, `economy/shop-ui.js`, `crew/crew.js`, `render/hud.js`, `modes/port.js`, `meta/captains-log.js`, `world/sea-objects.js`, `world/npc-ships.js`, `modes/title.js`, plus `test/scenarios/balance-tuning.test.js` (new).
+
 ---
 
 ## Current File Structure

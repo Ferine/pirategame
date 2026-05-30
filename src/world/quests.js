@@ -174,6 +174,8 @@ function resolvePortArrivalQuests(gameState, portName) {
           _archiveQuest(quests, quest, 'success');
           quests.active.splice(i, 1);
           gameState.convoy = null;
+          // Track for the 'convoy_master' achievement (nothing else writes this).
+          if (gameState.stats) gameState.stats.convoysCompleted++;
 
           let msg = `Convoy escorted safely! +${quest.rewardGold} rds`;
           if (repChanges.length) msg += ` (${repChanges.join(', ')})`;

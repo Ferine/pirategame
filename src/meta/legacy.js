@@ -39,6 +39,7 @@ function createPersistent() {
     stats: createStats(),
     unlocked: [],
     cosmetics: { activeShipArt: null, activeColorScheme: null },
+    tutorialSeen: false,  // first-run intro shown once, then opt-in via title
   };
 }
 
@@ -62,6 +63,7 @@ function loadPersistent() {
       stats: { ...base.stats, ...(data.stats || {}) },
       unlocked: Array.isArray(data.unlocked) ? data.unlocked : [],
       cosmetics: { ...base.cosmetics, ...(data.cosmetics || {}) },
+      tutorialSeen: !!data.tutorialSeen,
     };
   } catch (e) {
     return createPersistent();
@@ -175,6 +177,7 @@ function createNewGamePlusState(oldGameState) {
   const { createFleetState } = require('../fleet/fleet');
   const { createCampaignState } = require('../story/campaign');
   const { createLogState } = require('./captains-log');
+  const { createCodecState } = require('../world/codec-ships');
 
   const carryGold = Math.floor((oldGameState.economy ? oldGameState.economy.gold : 0) * 0.5);
   // Keep best ship stats
@@ -215,6 +218,11 @@ function createNewGamePlusState(oldGameState) {
     persistent: oldGameState.persistent || loadPersistent(),
     achievementToasts: [],
     ngPlus: true,
+    // Reset codec state for the new run — otherwise the previous run's scene
+    // progression and (higher) lastSpawnDay carry over, which suppresses codec
+    // ship spawns until the in-game day passes the old run's last spawn.
+    codec: createCodecState(),
+    codecShips: [],
   };
 
   // Apply carry-over gold
@@ -252,6 +260,15 @@ function syncAndCheckAchievements(gameState) {
   // Check crown honored stat from reputation
   if (gameState.reputation && gameState.reputation.crown >= 85) {
     gameState.stats.crownHonored = 1;
+  }
+
+  // Track peak fleet size (the 'fleet_admiral' achievement reads this — nothing
+  // else writes it, so derive the high-water mark from the current fleet here).
+  if (gameState.fleet && Array.isArray(gameState.fleet.ships)) {
+    gameState.stats.maxFleetSize = Math.max(
+      gameState.stats.maxFleetSize || 1,
+      gameState.fleet.ships.length
+    );
   }
 
   mergeStats(gameState.persistent, gameState.stats);

@@ -44,10 +44,10 @@ describe('crew', () => {
   });
 
   describe('tickMorale — morale decay', () => {
-    it('morale decays after 5 days at sea', () => {
+    it('morale decays after 8 days at sea', () => {
       const crew = withDeterministicRandom(1, () => createCrewState());
       const economy = { gold: 100 };
-      crew.daysSincePort = 5; // will increment to 6 on tick
+      crew.daysSincePort = 8; // will increment to 9 on tick
 
       const startMorale = crew.members.map(m => m.morale);
       withDeterministicRandom(99, () => tickMorale(crew, economy));

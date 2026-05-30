@@ -108,8 +108,20 @@ Every game mode implements: `enter(gameState)`, `exit()`, `update(dt)`, `render(
 - C: Toggle CRT filter (overworld)
 - N: Helmsman navigation menu / cancel autopilot (overworld)
 - L: Captain's log (overworld/port)
+- ?: In-game help / controls overlay (overworld)
 - Q: Quit from title / return from modes
 - Ctrl-C: Exit anytime
+
+**Debug keys (gated behind `KK_DEBUG` env var — never set in shipping builds):**
+- V (open water): force a combat encounter (note: V also triggers the codec spyglass on marked ships, which is always available)
+- P: teleport into the nearest port
+
+## Release
+
+See `RELEASE.md` for the Steam packaging plan and pre-release quality gate.
+QA commands: `npm test` (533 tests), `npm run fuzz` (headless mode fuzzer),
+`npm run smoke` (PTY launch test, needs python3). The game loop logs caught
+errors to `~/.kattegat-kaper/crash.log` and survives them in shipping builds.
 
 ## Roadmap
 

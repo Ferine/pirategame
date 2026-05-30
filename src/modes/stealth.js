@@ -562,6 +562,19 @@ class StealthMode {
         }
       }
     }
+
+    // Campaign: Act 3 dispatch interception via infiltrating an English ship
+    // (boarding/cannon also seize dispatches — keep every win path consistent).
+    if (this.gameState.campaign && this.gameState.campaign.act === 3
+        && this.gameState.campaign.phase === 'dispatch_hunt'
+        && this.resultType === 'success'
+        && this.gameState.stealthInfo && this.gameState.stealthInfo.faction === 'english') {
+      const { applyShipVictoryToCampaign } = require('../story/combat-resolution');
+      const notices = applyShipVictoryToCampaign(this.gameState, 'english');
+      if (notices.length) {
+        this.gameState.questNotices = (this.gameState.questNotices || []).concat(notices);
+      }
+    }
   }
 
   _exitStealth() {

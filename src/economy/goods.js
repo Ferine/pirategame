@@ -36,9 +36,9 @@ const PORT_PRICES = {
 const UPGRADES = [
   { id: 'hull_repair', name: 'Hull Repair',       desc: 'Restore hull to full',     cost: 30,  type: 'repair' },
   { id: 'hull_plate',  name: 'Hull Plating',      desc: 'Max hull +25',             cost: 120, type: 'hull',  bonus: 25 },
-  { id: 'cargo_ext',   name: 'Cargo Extension',   desc: 'Cargo hold +10',           cost: 80,  type: 'cargo', bonus: 10 },
-  { id: 'fast_sails',  name: 'Fast Sails',        desc: 'Speed +20%',               cost: 150, type: 'speed', bonus: 0.2 },
-  { id: 'extra_cannon', name: 'Extra Cannon',      desc: 'Cannons +1',              cost: 100, type: 'cannon', bonus: 1 },
+  { id: 'cargo_ext',   name: 'Cargo Extension',   desc: 'Cargo hold +10',           cost: 60,  type: 'cargo', bonus: 10 },
+  { id: 'fast_sails',  name: 'Fast Sails',        desc: 'Speed +20%',               cost: 120, type: 'speed', bonus: 0.2 },
+  { id: 'extra_cannon', name: 'Extra Cannon',      desc: 'Cannons +1',              cost: 75,  type: 'cannon', bonus: 1 },
 ];
 
 /**

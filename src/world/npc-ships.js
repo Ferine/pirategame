@@ -22,10 +22,14 @@ const FACTION_COLORS = {
 
 // Faction ship names
 const FACTION_NAMES = {
-  english:  ['HMS Resolute', 'HMS Dreadnought', 'HMS Victory', 'HMS Vanguard', 'HMS Interceptor'],
-  danish:   ['KDM Niels Juel', 'KDM Peder Skram', 'KDM Herluf Trolle', 'KDM Holger Danske'],
-  merchant: ['Nordstjernen', 'Havfruen', 'Den Gyldne Hjort', 'Fortuna', 'Tre Kroner', 'Svanen'],
-  pirate:   ['Black Ravn', 'Havets Ulv', 'Stormfuglen', 'Djævlens Datter'],
+  english:  ['HMS Resolute', 'HMS Dreadnought', 'HMS Victory', 'HMS Vanguard', 'HMS Interceptor',
+             'HMS Tenacious', 'HMS Audacious', 'HMS Sovereign’s Pride', 'HMS Implacable'],
+  danish:   ['KDM Niels Juel', 'KDM Peder Skram', 'KDM Herluf Trolle', 'KDM Holger Danske',
+             'KDM Dannebrog', 'KDM Tordenskjold', 'KDM Christian den Fjerde', 'KDM Valkyrien'],
+  merchant: ['Nordstjernen', 'Havfruen', 'Den Gyldne Hjort', 'Fortuna', 'Tre Kroner', 'Svanen',
+             'Den Tålmodige', 'Sildedronningen', 'Det Våde Får', 'Profit og Bøn'],
+  pirate:   ['Black Ravn', 'Havets Ulv', 'Stormfuglen', 'Djævlens Datter',
+             'Mermaid’s Regret', 'Den Sidste Advarsel', 'Galgenfugl', 'Tørstige Margrethe'],
 };
 
 // Ship templates per faction
@@ -414,6 +418,10 @@ function _resolveNPCClashes(ships) {
       ships[winner].hull = Math.max(1, ships[winner].hull - 15);
       toRemove.add(loser);
       reports.push(`${ships[winner].name} sank the ${ships[loser].name}!`);
+
+      // If ship i itself was sunk, stop pairing it this tick — a sunk ship
+      // must not keep "fighting" (and sinking) further ships.
+      if (loser === i) break;
     }
   }
 
